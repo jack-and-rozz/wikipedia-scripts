@@ -61,7 +61,7 @@ def timewatch(func):
     start = time.time()
     result = func(*args, **kwargs)
     end = time.time()
-    print (func.__name__, ": ", end - start)
+    sys.stderr.write(func.__name__ +  ": %f\n" % (end - start))
     return result
   return wrapper
 
@@ -102,18 +102,8 @@ def color_link(text, link_spans):
   return ' '.join(text)
 
 
-
-def process_page(page, s_parser):
-  pid = page['pid']
-  text = page['text']
-
-  paragraphs = [line for line in text.split('\n') if len(line) > 0 and line != '　']
-
-  # Use the second paragraph (the first paragraph is the title)
-  if len(paragraphs) <= 1:
-    return None
-  para = paragraphs[1]
-  origin = para
+def process_paragraph(pid, paragraph, s_parser):
+  para = origin = paragraph 
 
   # stanford's sentence splitter doesn't always work well around the brackers.
   # e,g, "A are one of the [[...|singular]]s. B are ...". (Not to be splitted)
@@ -121,23 +111,27 @@ def process_page(page, s_parser):
   for m in re.findall('(\]\]\S+?)\. ', para):
     para = para.replace(m, m + ' ')
 
-
   # Remove phrases enclosed in parentheses with no links.
   # (Those are usually expressions in different languages, or acronyms.)
-  for m in re.findall('\([\S\s]+?\)', para):
-    # Dont remove enclosed phrases that are part of the title of an entity.
-    expr = '(\[\[[^\[]+?)%s([^\]]+?)\]\]' % m
-    if not re.search(expr, para):
-      para = para.replace(m , '')
+  link_template = '\[\[[^\[\]]+?(\(.+?\)).*?\|([^\[\]]+?)\]\]'
+  linked_parantheses = [m2[0] for m2 in re.findall(link_template, para)]
+  _linked_parantheses = [m2[1] for m2 in re.findall(link_template, para)]
+  for m in re.findall('\([\S\s]*?\)', para):
+    if m not in linked_parantheses:
+       para = para.replace(m , '')
 
+  # if linked_parantheses:
+  #   sys.stderr.write('********para*******\n')
+  #   sys.stderr.write(para + '\n')
+  #   sys.stderr.write('-------match-------\n')
+  #   sys.stderr.write('\t'.join(re.findall('\([\S\s]*?\)', para)) + '\n')
+  #   sys.stderr.write("\t".join(linked_parantheses)+'\n')
+  #   sys.stderr.write("\t".join(_linked_parantheses)+'\n')
 
   # Get precise titles from link template before parsing.
   # (if after, e.g., 'CP/M-86' can be splited into 'CP/M -86' in tokenizing and become a wrong title)
-
   link_template = '\[\[(.+?)\|(.+?)\]\]'
   titles = [m[0].replace(' ', '_') for m in re.findall(link_template, para)]
-  if pid == '2215':
-    pass
 
   # Tokenize by stanford parser.
   para = stanford_tokenizer(para, s_parser)
@@ -158,9 +152,6 @@ def process_page(page, s_parser):
     link, _, link_phrase = m.group(0), m.group(1), m.group(2)
     link_phrases.append(link_phrase)
     para = para.replace(link, SYMLINK)
-    # We use only linked pages.
-    if len(link_phrases) == 0:
-      return "", []
 
   # Remove continuous delimiters, etc.
   # (caused by removing external links when the xml file was parsed).
@@ -169,10 +160,6 @@ def process_page(page, s_parser):
   para = re.sub('\\\/', '/', para)
   para = re.sub('([;\,\/] ){2,}', ', ', para)
   para = re.sub('%s\s*%s ' % (LRB, RRB), '', para)
-
-  # para = re.sub('%s ([,;] )+' % (LRB), LRB, para)
-  # para = para.replace('%s\s*%s ' % (LRB, RRB), '')
-
 
   # get link spans
   link_idx = [j for j, w in enumerate(para.split(' ')) if w == SYMLINK]
@@ -188,21 +175,33 @@ def process_page(page, s_parser):
 
   if args.debug:
     pass
-    sys.stderr.write("%s(%s) Original text%s: %s\n" % (BOLD, pid, RESET, origin))
+    sys.stdout.write("%s(%s) Original text%s: %s\n" % (BOLD, pid, RESET, origin))
 
-    sys.stderr.write("%s(%s) Processed text%s: %s\n"  % (
+    sys.stdout.write("%s(%s) Processed text%s: %s\n"  % (
       BOLD, pid, RESET, color_link(para, link_spans)))
-    sys.stderr.write("%s(%s) Link spans%s: %s\n" % (
+    sys.stdout.write("%s(%s) Link spans%s: %s\n" % (
       BOLD, pid, RESET, link_spans))
-    sys.stderr.write("\n")
-    
-    #res.append((para, link_spans))
+    sys.stdout.write("\n")
   return (para, link_spans)
+
+def process_page(page, s_parser):
+  pid = page['pid']
+  text = page['text']
+
+  paragraphs = [line for line in text.split('\n') if len(line) > 0 and line != '　']
+
+  # Use the second paragraph (the first paragraph is the title)
+  if len(paragraphs) <= 1:
+    return None
+  res = []
+  for p_idx, para in enumerate(paragraphs[1:1+args.n_paragraphs]):
+    res.append(process_paragraph(pid, para, s_parser))
+  return res
 
 @timewatch
 def read_json(source_path, title2qid, q=None):
   if args.debug:
-    sys.stderr.write(source_path + '\n')
+    sys.stdout.write(source_path + '\n')
   s_parser = corenlp.StanfordCoreNLP(corenlp_path=corenlp_dir,
                                      properties=properties_file)
 
@@ -223,11 +222,11 @@ def read_json(source_path, title2qid, q=None):
         'qid': qid,
         'text': text,
       }
-      sent, link_spans = process_page(page, s_parser)
-      if not link_spans:
+      page_res = process_page(page, s_parser)
+      if not page_res:
         continue
       # 'plain_text, [(title, start, end), ...]'
-      res[qid] = (sent, link_spans)
+      res[qid] = page_res
   if q:
     q.put(res)
 
@@ -258,14 +257,15 @@ def main(args):
   title2qid=None
   sys.stderr.write('Reading articles ...\n')
   all_pathes = commands.getoutput('ls -d %s/*/wiki_*' % args.source_dir).split()
+  sys.stderr.write("Numbers of json files: %d \n" % len(all_pathes))
+
   for _, pathes in itertools.groupby(enumerate(all_pathes), lambda x: x[0] // (args.n_process)):
     pathes = [p[1] for p in pathes]
     #pathes = [pathes[1]]
     res = multi_read_json(pathes, title2qid)
-    print sum([len(r) for r in res])
     #articles = read_json(source_path, title2qid)
     break
-  pass
+  sys.stderr.write("Numbers of Articles: %d \n" % sum([len(r) for r in res]))
 
 if __name__ == "__main__":
   desc = "This script creates wikiP2D corpus from Wikipedia dump sqls (page.sql, wbc_entity_usage.sql) and a xml file (pages-articles.xml) parsed by WikiExtractor.py (https://github.com/attardi/wikiextractor.git) with '--filter_disambig_pages --json' options."
@@ -276,5 +276,7 @@ if __name__ == "__main__":
   parser.add_argument('--dbname', default='wikipedia')
   parser.add_argument('--debug', default=True, type=str2bool)
   parser.add_argument('--n_process', default=1, type=int)
+  parser.add_argument('--n_paragraphs', default=1, type=int)
+  parser.add_argument('--n_sentences', default=1, type=int)
   args = parser.parse_args()
   main(args)
