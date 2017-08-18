@@ -23,6 +23,9 @@ def str2bool(v):
     return v
   return v.lower() in ("yes", "true", "t", "1")
 
+def str2arr(v):
+  return v.split(',')
+
 def create_entity_template():
   return {
     'name': '',
@@ -65,6 +68,7 @@ def read_data(args):
         entities[obj]['freq'] += 1
       entities[rel]['freq'] += 1
 
+    # Extract important values (name, description, aka.)
     elif is_a_value((subj_url, rel_url, obj_url)):
       idx = [name_url, description_url, aka_url].index(rel_url)
       v_type = ['name', 'desc', 'aka'][idx]
@@ -107,10 +111,16 @@ def timewatch(func):
 
 
 
-def sort_by_freq(entities, remove_anonymous_entities=True):
-  if remove_anonymous_entities:
+def sort_by_freq(entities, required_value_types=[]):
+  def is_complete(entity):
+    if False not in [True if entities[k][v_type] else False for v_type in required_value_types]:
+      return True
+    else:
+      return False
+    
+  if required_value_types:
     # Remove incomplete (no name) entities due to lack of data
-    e_complete = [k for k in entities if entities[k]['name']]
+    e_complete = [k for k in entities if is_complete(k)]
     e_complete = {k:entities[k] for k in e_complete}
   else:
     e_complete = entities
@@ -165,6 +175,7 @@ if __name__ == "__main__":
   parser.add_argument('--count_subj_prop', default=False, type=str2bool)
   parser.add_argument('--count_obj_prop', default=False, type=str2bool)
   parser.add_argument('--cleanup', default=False, type=str2bool)
-  parser.add_argument('--remove_anonymous_entities', default=True, type=str2bool)
+  parser.add_argument('--required_value_types', default='name', type=str2arr,
+                help='a list-string of required value types (delimited by ",").')
   args = parser.parse_args()
   main(args)
