@@ -2,11 +2,17 @@
 from pprint import pprint
 import argparse, re, os, time, sys
 from collections import OrderedDict
-
+import common
 try:
-   import cPickle as pickle
+  import cPickle as pickle
 except:
    import pickle
+
+def select_from_od(od, n):
+  res = OrderedDict()
+  for k in od.keys()[:n]:
+    res[k] = od[k]
+  return res
 
 def str2bool(v):
   if type(v) == bool:
@@ -22,11 +28,6 @@ def timewatch(func):
     return result
   return wrapper
 
-def select_from_od(od, n):
-  res = OrderedDict()
-  for k in od.keys()[:n]:
-    res[k] = od[k]
-  return res
 
 def select_triples(triples, items, props):
   res = [(sbj, rel, obj) for (sbj, rel, obj) in triples if sbj in items and obj in items and rel in props]

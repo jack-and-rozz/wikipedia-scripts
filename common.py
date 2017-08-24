@@ -2,14 +2,10 @@
 from pprint import pprint
 from collections import OrderedDict, defaultdict
 from getpass import getpass
-import MySQLdb
-import multiprocessing as mp
-import argparse, sys, os, time, json, commands, re, itertools, random, itertools
 
-try:
-   import cPickle as pickle
-except:
-   import pickle
+import multiprocessing as mp
+import argparse, sys, os, time, json, re, itertools, random, itertools
+
 
 ############################################
 ##              Utils
@@ -29,10 +25,10 @@ def timewatch(func):
   return wrapper
 
 def multi_process(func, *args):
-  def wrapper(_func, q):
+  def wrapper(_func, idx, q):
     def _wrapper(*args, **kwargs):
       res = func(*args, **kwargs)
-      return q.put(res)
+      return q.put((idx, res))
     return _wrapper
 
   workers = []
@@ -41,8 +37,8 @@ def multi_process(func, *args):
   q = mp.Manager().Queue() 
   
   # kwargs are not supported... (todo)
-  for a in zip(*args):
-    worker = mp.Process(target=wrapper(func, q), args=a)
+  for i, a in enumerate(zip(*args)):
+    worker = mp.Process(target=wrapper(func, i, q), args=a)
     workers.append(worker)
     worker.daemon = True  # make interrupting the process with ctrl+c easier
     worker.start()
@@ -53,4 +49,10 @@ def multi_process(func, *args):
   while not q.empty():
     res = q.get()
     results.append(res)
-  return results
+  
+  return [res for i, res in sorted(results, key=lambda x: x[0])]
+
+
+def flatten(l):
+  return list(itertools.chain.from_iterable(l))
+

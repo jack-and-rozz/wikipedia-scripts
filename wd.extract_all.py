@@ -168,14 +168,14 @@ def main(args):
 if __name__ == "__main__":
   desc = 'This script is for preprocessing latest-truthy.nt file in \'https://dumps.wikimedia.org/wikidatawiki/entities/\''
   parser = argparse.ArgumentParser(description=desc)
-  parser.add_argument('target_dir')
-  parser.add_argument('--source_path', default='data/latest-truthy.nt')  
+  parser.add_argument('--target_dir', default='wikidata/latest/extracted')
+  parser.add_argument('--source_path', default='wikidata/latest/latest-truthy.nt')  
   parser.add_argument('--lang', default='en')
   parser.add_argument('--max_rows', default=None, type=int)
   parser.add_argument('--count_subj_prop', default=False, type=str2bool)
   parser.add_argument('--count_obj_prop', default=False, type=str2bool)
   parser.add_argument('--cleanup', default=False, type=str2bool)
   parser.add_argument('--required_value_types', default='name', type=str2arr,
-                help='a list-string of required value types (delimited by ",").')
+                help='a list-string of required (a node must have) value types (delimited by ",").')
   args = parser.parse_args()
   main(args)

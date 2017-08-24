@@ -33,10 +33,9 @@ properties_file = os.path.join(corenlp_dir, 'user.properties')
 ##            Tokenizer
 ############################################
 
-def stanford_tokenizer(sentence, s_parser):
-  result = json.loads(s_parser.parse(sentence))
+def stanford_tokenizer(text, s_parser):
+  result = json.loads(s_parser.parse(text))
   sentences = [sent for sent in result['sentences'] if sent['words']]
-  # Use only the first sentence. 
   para = [" ".join([w[0] for w in sent['words']]).encode('utf-8') for sent in sentences]
   return para
 
@@ -318,7 +317,7 @@ def create_dump(args):
   count(selected_pages)
 
   chunk_size = 100000
-  if args.cleanup or False:
+  if args.cleanup or not commands.getoutput('ls -d %s/* | grep *\.bin.[0-9]\+' % dump_dir).split():
     for i, d in itertools.groupby(enumerate(pages), lambda x: x[0] // chunk_size):
       chunk = {x[1]:pages[x[1]] for x in d}
       pickle.dump(chunk, open(dump_dir + output_file + '.%d' %i, 'wb'))
@@ -332,7 +331,8 @@ def main(args):
 if __name__ == "__main__":
   desc = "This script creates wikiP2D corpus from Wikipedia dump sqls (page.sql, wbc_entity_usage.sql) and a xml file (pages-articles.xml) parsed by WikiExtractor.py (https://github.com/attardi/wikiextractor.git) with '--filter_disambig_pages --json' options."
   parser = argparse.ArgumentParser(description=desc)
-  parser.add_argument('--source_dir', default='/home/shoetsu/disk/dataset/wikipedia/en/latest/extracted')
+  parser.add_argument('--source_dir', default='wikipedia/latest/extracted', 
+                      help='the directory of wiki_** files parsed by WikiExtractor.py from enwiki-***-pages-articles.xml')
   parser.add_argument('--dump_dir', default='dumps')
   parser.add_argument('--dbuser', default='shoetsu')
   parser.add_argument('--dbpass', default='password')
