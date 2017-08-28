@@ -140,7 +140,7 @@ def main(args):
 if __name__ == "__main__":
   desc = ''
   parser = argparse.ArgumentParser(description=desc)
-  parser.add_argument('--source_dir', default='wikidata/latest/truthy.en')
+  parser.add_argument('--source_dir', default='wikidata/latest/extracted')
   parser.add_argument('--cleanup', default=False, type=str2bool)
   args = parser.parse_args()
 

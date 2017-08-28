@@ -10,6 +10,25 @@ import argparse, sys, os, time, json, re, itertools, random, itertools
 ############################################
 ##              Utils
 ############################################
+
+class dotdict(dict):
+  __getattr__ = dict.__getitem__
+  __setattr__ = dict.__setitem__
+  __delattr__ = dict.__delitem__
+
+class dotdefaultdict(defaultdict):
+  __getattr__ = dict.__getitem__
+  __setattr__ = dict.__setitem__
+  __delattr__ = dict.__delitem__
+
+class rec_dotdefaultdict(defaultdict):
+  __getattr__ = dict.__getitem__
+  __setattr__ = dict.__setitem__
+  __delattr__ = dict.__delitem__
+  def __init__(self):
+    super(dotdefaultdict, self).__init__(dotdefaultdict)
+
+
 def str2bool(v):
   if type(v) == bool:
     return v
