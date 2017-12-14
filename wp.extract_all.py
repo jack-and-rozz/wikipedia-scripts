@@ -200,7 +200,9 @@ def process_page(page, s_parser):
   if len(paragraphs) <= 1:
     return None
   res = []
-  for para_idx, para in enumerate(paragraphs[1:1+args.n_paragraph]):
+  paragraphs = paragraphs[1:1+args.n_paragraph] if args.n_paragraph else paragraphs[1:]
+  
+  for para_idx, para in enumerate(paragraphs):
     res_paragraph = process_paragraph(pid, para_idx, para, s_parser)
 
     # Include paragraphs that include no links for now (the context may be used for something).
@@ -282,15 +284,15 @@ def count(pages):
 
 @timewatch
 def create_dump(args):
-  dump_dir = args.source_dir + '/' + args.dump_dir
+  dump_dir = args.source_dir + '/dumps' + '.p%ds%d' % (args.n_paragraph, args.n_sentence)
   if not os.path.exists(dump_dir):
     os.makedirs(dump_dir)
 
   output_suffix = ""
-  if args.n_paragraph: 
-    output_suffix += 'p' + str(args.n_paragraph)
-  if args.n_sentence:
-    output_suffix += 's' + str(args.n_sentence)
+  output_suffix += 'p' 
+  output_suffix += str(args.n_paragraph)
+  output_suffix += 's'
+  output_suffix += str(args.n_sentence)
   if output_suffix:
     output_suffix = '.' + output_suffix
   output_file = '/pages%s.all.bin' % (output_suffix)
@@ -333,7 +335,6 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser(description=desc)
   parser.add_argument('--source_dir', default='wikipedia/latest/extracted', 
                       help='the directory of wiki_** files parsed by WikiExtractor.py from enwiki-***-pages-articles.xml')
-  parser.add_argument('--dump_dir', default='dumps')
   parser.add_argument('--dbuser', default='shoetsu')
   parser.add_argument('--dbpass', default='password')
   parser.add_argument('--dbhost', default='localhost')

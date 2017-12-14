@@ -16,18 +16,22 @@ class dotdict(dict):
   __setattr__ = dict.__setitem__
   __delattr__ = dict.__delitem__
 
-class dotdefaultdict(defaultdict):
-  __getattr__ = dict.__getitem__
-  __setattr__ = dict.__setitem__
-  __delattr__ = dict.__delitem__
 
 class rec_dotdefaultdict(defaultdict):
   __getattr__ = dict.__getitem__
   __setattr__ = dict.__setitem__
   __delattr__ = dict.__delitem__
-  def __init__(self):
-    super(dotdefaultdict, self).__init__(dotdefaultdict)
+  def __init__(self, _=None):
+    super(rec_dotdefaultdict, self).__init__(rec_dotdefaultdict)
 
+  # def bfsearch(self):
+  #   for k in self:
+  #     if isinstance(self[k], type(self)):
+  #       yield self[k].bfsearch()
+  #     else:
+  #       yield self[k]
+  #     #print k , type(self[k])
+  #   exit(1)
 
 def str2bool(v):
   if type(v) == bool:
@@ -44,7 +48,14 @@ def timewatch(func):
   return wrapper
 
 def multi_process(func, *args):
-  def wrapper(_func, idx, q):
+  '''
+  Args:
+    - func : a function to be executed.
+    - args : a list of list of args that a worker needs. 
+             [[id1, name1, ...], [id2, name2, ...]]
+  '''
+  # A wrapper to make a function put its response to a queue.
+  def wrapper(_func, idx, q): 
     def _wrapper(*args, **kwargs):
       res = func(*args, **kwargs)
       return q.put((idx, res))

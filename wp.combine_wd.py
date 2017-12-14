@@ -2,7 +2,7 @@
 from orderedset import OrderedSet
 from pprint import pprint
 from collections import OrderedDict, defaultdict, Counter
-import multiprocessing as mp
+#import multiprocessing as mp
 import argparse, sys, os, time, json, commands, re, itertools, random, math
 from common import str2bool, timewatch, multi_process, flatten
 
@@ -19,6 +19,7 @@ try:
 except:
    import pickle
 
+@timewatch
 def pages_stats(pages, min_qfreq):
   w_count = defaultdict(int)
   q_count = defaultdict(int)
@@ -79,7 +80,7 @@ def plot(freqs, titles):
   fig.savefig('/home/shoetsu/workspace/plot.eps')
 
 
-
+@timewatch
 def preprocess(pages):
   replace_tokens = [
     ('-LRB-', '('),
@@ -118,14 +119,17 @@ def sum_by_qid(pages, min_qfreq):
           qid, start, end = link
           res[qid].append((text, start, end))
           link_phrases[qid].add(' '.join(text.split()[start:end+1]))
-  res = OrderedDict(sorted([(k,v) for k,v in res.items() if len(v) >= min_qfreq], key=lambda x: -len(x[1])))
+  # pages_by_qid[qid] = [(text0, start0, end0), ...]
+  pages_by_qid = [(k,v) for k,v in res.items() if len(v) >= min_qfreq]
+  pages_by_qid = OrderedDict(sorted(pages_by_qid, key=lambda x: -len(x[1])))
 
-  link_phrases = {k:link_phrases[k] for k in res}
+  # link_phrases[qid] = set(phrase0, phrase1, ...)
+  link_phrases = {k:link_phrases[k] for k in pages_by_qid}
 
   w_freq = sorted([(k, v) for k, v in w_count.items()], key = lambda x: -x[1])
   sys.stdout.write("Number of words: %d\n" % sum((n for _, n in w_freq)))
   sys.stdout.write("Word vocab size: %d\n" % len(w_freq))
-  return res, link_phrases
+  return pages_by_qid, link_phrases
 
 @timewatch
 def read_dumps(dump_files, n_process):
@@ -178,10 +182,11 @@ def select_from_od(od, n):
 @timewatch
 def process_wikipedia(args):
   if not os.path.exists(args.target_dir + '/pages.minq%d.bin' % args.min_qfreq) or args.cleanup:
-    dump_dir = args.wp_source_dir + '/dumps'
+    dump_dir = args.wp_source_dir
+    sys.stderr.write('Reading wikipedia chunked dump files from \'%s\'\n' % dump_dir)
     dump_files = commands.getoutput('ls -d %s/* | grep pages\..*\.bin.[0-9]' % dump_dir).split()
-    if args.n_file:
-      dump_files = dump_files[:args.n_file]
+    if args.n_files:
+      dump_files = dump_files[:args.n_files]
     dumps = read_dumps(dump_files, args.n_process) # list of pages per a process.
     pages = {}
     for d in dumps:
@@ -194,16 +199,18 @@ def process_wikipedia(args):
     check_linked_phrases(link_phrases, vocab)
     pickle.dump(data, open(args.target_dir + '/pages.minq%d.bin' % args.min_qfreq, 'wb'))
   else:
-    sys.stderr.write('Loading %s \n' % (args.target_dir + '/pages.minq%d.bin' % args.min_qfreq))
+    sys.stdout.write('Loading processed wikipedia dumps from %s \n' % (args.target_dir + '/pages.minq%d.bin' % args.min_qfreq))
     data = pickle.load(open(args.target_dir + '/pages.minq%d.bin' % args.min_qfreq, 'rb'))
   return data
 
 @timewatch
-def combine_wikidata(pages, items, props, triples, n_objects=0, n_props=0):
-  # A subject must be linked pages and registered as an item.
+def combine_wikidata(pages, items, props, triples, _n_objects=0, _n_props=0):
+  n_objects = _n_objects
+  n_props = _n_props
+  # A subject must be linked in a page and registered as an item.
   subjects = set(pages.keys()).intersection(items.keys())
 
-  # Get frequent relations and objects.
+  # Get top-n frequent relations and objects.
   freq_props = sorted(Counter([t[1] for t in triples]).items(), 
                       key=lambda x: -x[1])
   n_props = n_props if n_props else len(freq_props)
@@ -218,82 +225,91 @@ def combine_wikidata(pages, items, props, triples, n_objects=0, n_props=0):
   selected_triples = [(s,r,o) for s,r,o in triples if s in subjects and r in freq_props and o in freq_objects]
 
   # Remove unused subjects, props, objects.
-  linked_subjects = OrderedDict()
+  subjects = OrderedDict()
   relations = OrderedDict()
   objects = OrderedDict()
 
-  s_freq = Counter([s for s,r,o in selected_triples])
-  r_freq = Counter([r for s,r,o in selected_triples])
-  o_freq = Counter([o for s,r,o in selected_triples])
+  s_freq = OrderedDict(sorted(Counter([s for s,r,o in selected_triples]).items(), 
+                              key=lambda x: -x[1]))
+  r_freq = OrderedDict(sorted(Counter([r for s,r,o in selected_triples]).items(), 
+                              key=lambda x: -x[1]))
+  o_freq = OrderedDict(sorted(Counter([o for s,r,o in selected_triples]).items(), 
+                              key=lambda x: -x[1]))
 
   for k in s_freq:
-    selected_subjects[k] = items[k]
-    selected_subjects[k]['freq'] = s_freq[k]
+    subjects[k] = items[k]
+    subjects[k]['freq'] = s_freq[k]
 
-  for k in freq_props:
-    if k in r_freq:
-      relations[k] = props[k] 
-      relations[k]['freq'] = r_freq[k]
+  for k in r_freq:
+    relations[k] = props[k] 
+    relations[k]['freq'] = r_freq[k]
 
-  for k in freq_objects:
-    if k in o_freq:
-      objects[k] = items[k] 
-      objects[k]['freq'] = o_freq[k]
+  for k in o_freq:
+    objects[k] = items[k] 
+    objects[k]['freq'] = o_freq[k]
 
   # Summarize triples by the subject's Wikidata-ID.
   summed_triples = defaultdict(list)
   for s,r,o in selected_triples:
     summed_triples[s].append((r, o))
 
-  sys.stdout.write("(Objects:%d, Relation:%d) Number of Subjects, Props, Objects, Triples, = %d, %d, %d, %d\n" % (n_objects, n_props, len(subjects), len(relations), len(objects), len(selected_triples)))
+  sys.stdout.write("(Objects:%d, Relation:%d) Number of Subjects, Props, Objects, Triples, = %d, %d, %d, %d\n" % (_n_objects, _n_props, len(subjects), len(relations), len(objects), len(selected_triples)))
 
-  return linked_subjects, relations, objects, summed_triples
+  return subjects, relations, objects, summed_triples
 
 @timewatch
 def main(args):
-  # n_objects = 0
-  # n_props = 300
-  # suffix = '.minq%d.o%dr%d.bin' % (args.min_qfreq, n_objects, n_props)
-  # objects = pickle.load(open(args.target_dir + '/relations' + suffix, 'rb'))
-  # for i,(k,v) in enumerate(sorted([(k,v) for k,v in objects.items()], key=lambda x:-x[1]['freq'])):
-    
-  #   pprint((k, objects[k]))
-  #   if i ==100:
-  #     return
-  # return
   pages = process_wikipedia(args)
+  sys.stdout.write('Number of Linked Entities: %d\n' % len(pages))
+  sys.stdout.write('Number of Links: %d\n' % sum([len(pages[qid])for qid in pages]))
 
-  wd_files = [os.path.join(args.wd_source_dir, w) for w in ['items.tokenized.bin', 'properties.tokenized.bin', 'triples.bin']]
-  items, props, triples = (pickle.load(open(f, 'rb')) for f in wd_files)
+  @timewatch
+  def load_wd_dump(files):
+    wd_files = [os.path.join(args.wd_source_dir, w) for w in files]
+    return (pickle.load(open(f, 'rb')) for f in wd_files)
+  files = ['items.tokenized.bin', 'properties.tokenized.bin', 'triples.bin']
+  sys.stdout.write('Reading items, props, triples from \'%s\'\n' % args.wd_source_dir)
+  items, props, triples = load_wd_dump(files)
+
+  # files = ['items.bin']
+  # items, = load_wd_dump(files)
+  qid = 'Q486396'
+  print 'items.bin', qid, items[qid]
 
   sys.stdout.write("(all) Number of Items, Props, Triples = %d, %d, %d\n" % (len(items), len(props), len(triples)))
 
   # Use only the triples where the entity linked in wikipedia is the subject.
-  for n_objects in [0, 15000, 30000, 50000, 100000, 200000, 500000]:
-    for n_props in [0, 300, 500, 1000]:
+  #for n_objects in [15000, 30000, 50000, 100000, 200000, 500000, 0]:
+  for n_objects in [15000, 30000, 50000, 100000, 200000]:
+    #for n_props in [300, 500, 1000, 0]:
+    for n_props in [300, 500, 1000]:
       suffix = '.minq%d.o%dr%d.bin' % (args.min_qfreq, n_objects, n_props)
       if not os.path.exists(args.target_dir + '/relations' + suffix):
         res = combine_wikidata(pages, items, props, triples, 
-                               n_objects=n_objects, n_props=n_props)
+                               _n_objects=n_objects, _n_props=n_props)
         subjects, relations, objects, summed_triples = res
         pickle.dump(subjects, open(args.target_dir + '/subjects' + suffix, 'wb'))
         pickle.dump(relations, open(args.target_dir + '/relations' + suffix, 'wb'))
         pickle.dump(objects, open(args.target_dir + '/objects' + suffix, 'wb'))
         pickle.dump(summed_triples, open(args.target_dir + '/triples' + suffix, 'wb'))
-
+        
+        exit(1)
+        # pprint(subjects['Q486396'])
+        # pprint(items['Q486396'])
+        # exit(1)
 
 if __name__ == "__main__":
-  desc = "This script creates wikiP2D corpus from Wikipedia dump sqls (page.sql, wbc_entity_usage.sql) and a xml file (pages-articles.xml) parsed by WikiExtractor.py (https://github.com/attardi/wikiextractor.git) with '--filter_disambig_pages --json' options."
+  desc = ""
   parser = argparse.ArgumentParser(description=desc)
-  parser.add_argument('--wp_source_dir', default='wikipedia/latest/extracted/')
-  #parser.add_argument('--wd_source_dir', default='wikidata/latest/extracted/i100000p300/')
+  parser.add_argument('--wp_source_dir', default='wikipedia/latest/extracted/dumps.p1s1')
+  #parser.add_argument('--wd_source_dir', default='wikidata/latest/extracted/i100000p300') # for debug
   parser.add_argument('--wd_source_dir', default='wikidata/latest/extracted/')
-  parser.add_argument('--target_dir', default='wikiP2D')
-  parser.add_argument('--min_qfreq', default=10, type=int)
+  parser.add_argument('--target_dir', default='wikiP2D.p1s1')
+  parser.add_argument('--min_qfreq', default=5, type=int)
 
   # optional 
   parser.add_argument('--n_process', default=8, type=int)
-  parser.add_argument('--n_file', default=None, type=int)
+  parser.add_argument('--n_files', default=None, type=int, help="if not None, this script doesn't read all chunked dump files in \'wp_source_dir\'.")
   parser.add_argument('--cleanup', default=False, type=str2bool)
   args = parser.parse_args()
   main(args)

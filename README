@@ -15,3 +15,6 @@ python wp.extract_all.py
 
 ####4. Combine Two data.
 python wp.combine_wd.py
+
+####5. Create wikiP2D dataset.
+python create_dataset.py
