@@ -284,17 +284,11 @@ def count(pages):
 
 @timewatch
 def create_dump(args):
-  dump_dir = args.source_dir + '/dumps' + '.p%ds%d' % (args.n_paragraph, args.n_sentence)
+  output_suffix = '.p%ds%d' % (args.n_paragraph, args.n_sentence)
+  dump_dir = args.source_dir + '/dumps' + output_suffix
   if not os.path.exists(dump_dir):
     os.makedirs(dump_dir)
 
-  output_suffix = ""
-  output_suffix += 'p' 
-  output_suffix += str(args.n_paragraph)
-  output_suffix += 's'
-  output_suffix += str(args.n_sentence)
-  if output_suffix:
-    output_suffix = '.' + output_suffix
   output_file = '/pages%s.all.bin' % (output_suffix)
   if os.path.exists(dump_dir + output_file) and not args.cleanup:
     sys.stderr.write('Found pages.*.bin file ...\n')
