@@ -1,3 +1,4 @@
+corenlp-python==3.4.1.post1
 pprint
 orderedset
 cpickle
