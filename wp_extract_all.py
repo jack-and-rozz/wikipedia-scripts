@@ -227,12 +227,12 @@ def read_json_lines(source_path):
       j = json.loads(page)
       pid = j['id'].encode('utf-8')
       text = j['text'].encode('utf-8')
-      title = to_title_format(j['title'].encode('utf-8'))
-      qid = title2qid[title] if title in title2qid else None
+      ptitle = to_title_format(j['title'].encode('utf-8'))
+      qid = title2qid[ptitle] if ptitle in title2qid else None
       if not qid:
         continue
       page = {
-        'title': title,
+        'title': ptitle,
         'pid': pid,
         #'qid': qid,
         'text': text,

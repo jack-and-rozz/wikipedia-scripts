@@ -132,7 +132,14 @@ def sum_by_qid(pages, min_qfreq):
   return pages_by_qid, link_phrases
 
 @timewatch
-def read_dumps(dump_files, n_process):
+def read_dumps(pathes):
+  data = {}
+  for p in pathes:
+    data.update(pickle.load(open(p, 'rb')))
+  return data
+
+@timewatch
+def read_dumps_multi(dump_files, n_process): # 別に早くならなかった
   n_process = min(n_process, len(dump_files))
   pages = {}
   chunk_size = math.ceil((1.0 * len(dump_files) / n_process))
@@ -143,7 +150,10 @@ def read_dumps(dump_files, n_process):
     for dump in dumps:
       res.update(dump)
     return res
-  pages = multi_process(load, pathes)
+  dumps = multi_process(load, pathes)
+  pages = {}
+  for d in dumps:
+    pages.update(d)
   return pages
 
 def check_linked_phrases(link_phrases, vocab):
@@ -187,10 +197,7 @@ def process_wikipedia(args):
     dump_files = commands.getoutput('ls -d %s/* | grep pages\..*\.bin.[0-9]' % dump_dir).split()
     if args.n_files:
       dump_files = dump_files[:args.n_files]
-    dumps = read_dumps(dump_files, args.n_process) # list of pages per a process.
-    pages = {}
-    for d in dumps:
-      pages.update(d)
+    pages = read_dumps_multi(dump_files, args.n_process) # list of pages per a process.
     pages = preprocess(pages)
     q_freq, w_freq = pages_stats(pages, args.min_qfreq)
     vocab = [w for w, f in w_freq]
@@ -303,7 +310,7 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser(description=desc)
   parser.add_argument('--wp_source_dir', default='wikipedia/latest/extracted/dumps.p1s1')
   #parser.add_argument('--wd_source_dir', default='wikidata/latest/extracted/i100000p300') # for debug
-  parser.add_argument('--wd_source_dir', default='wikidata/latest/extracted/')
+  parser.add_argument('--wd_source_dir', default='wikidata/latest/extracted/all')
   parser.add_argument('--target_dir', default='wikiP2D.p1s1')
   parser.add_argument('--min_qfreq', default=5, type=int)
 

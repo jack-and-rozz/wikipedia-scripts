@@ -3,3 +3,4 @@ pprint
 orderedset
 cpickle
 MySQL-python
+matplotlib
