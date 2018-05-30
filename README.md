@@ -1,3 +1,4 @@
+
 ####0. Preparation
  * Download Wikidata/Wikipedia dumps.  
  * Import Wikipedia *.sql to MySQL database.

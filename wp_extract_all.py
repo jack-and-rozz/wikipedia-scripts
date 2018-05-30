@@ -3,11 +3,11 @@ from pprint import pprint
 from collections import OrderedDict, defaultdict
 from getpass import getpass
 import multiprocessing as mp
-import argparse, sys, os, time, json, commands, re, itertools, random, itertools
+import argparse, sys, os, time, json, subprocess, re, itertools, random, itertools, codecs
 from common import str2bool, timewatch, multi_process
 
 try:
-   import cPickle as pickle
+   import pickle as pickle
 except:
    import pickle
 
@@ -35,7 +35,7 @@ properties_file = os.path.join(corenlp_dir, 'user.properties')
 def stanford_tokenizer(text, s_parser):
   result = json.loads(s_parser.parse(text))
   sentences = [sent for sent in result['sentences'] if sent['words']]
-  para = [" ".join([w[0] for w in sent['words']]).encode('utf-8') for sent in sentences]
+  para = [" ".join([w[0] for w in sent['words']]) for sent in sentences]
   return para
 
 ############################################
@@ -47,7 +47,7 @@ def read_db(target_dir, dbuser, dbpass, dbhost, dbname):
   # page.sql, wbc_entity_usage.sql, redirect.sql need to be loaded into MySQL in advance.
   if os.path.exists(target_dir + '/title2qid.bin'): 
     sys.stderr.write('Found \'title2qid.bin\' ...\n')
-    title2qid = pickle.load(open(target_dir + '/title2qid.bin'))
+    title2qid = pickle.load(open(target_dir + '/title2qid.bin', 'rb'))
   else:
     import MySQLdb
     sys.stderr.write('Reading wikipedia DB...\n')
@@ -64,11 +64,15 @@ def read_db(target_dir, dbuser, dbpass, dbhost, dbname):
     # (All, T, X, S, O) = (8228959, 1401357, 1619537, 3374147, 1294316)
 
     # Get pages joined with wbc.eu_entity_id (wikidata ID).
+    #sql = "select page.page_title, wbc.eu_entity_id from page inner join wbc_entity_usage as wbc on page.page_id = wbc.eu_page_id where page.page_namespace=0 and page.page_is_redirect=0 and wbc.eu_aspect='S';"
     sql = "select page.page_title, wbc.eu_entity_id from page inner join wbc_entity_usage as wbc on page.page_id = wbc.eu_page_id where page.page_namespace=0 and page.page_is_redirect=0 and wbc.eu_aspect='S';"
     c.execute(sql)
     title2qid = {}
     for row in c.fetchall():
       title, qid = row
+      # Byte to str
+      title = title.decode('utf-8')
+      qid = qid.decode('utf-8')
       title2qid[title] = qid
     sys.stderr.write("Numbers of titles with entity-id: %d \n" % len(title2qid))
 
@@ -84,7 +88,8 @@ def read_db(target_dir, dbuser, dbpass, dbhost, dbname):
     c.close()
     conn.close()
     pickle.dump(title2qid, open(target_dir + '/title2qid.bin', 'wb'))
-
+  sys.stderr.write('Finish loading \'title2qid.bin\' ...\n')
+  
   return title2qid
 
 def color_link(text, link_spans):
@@ -95,8 +100,9 @@ def color_link(text, link_spans):
   return ' '.join(text)
 
 
-def process_sentence(sent, titles):
+def process_sentence(original_sent, titles):
   # Fix the prural word splitted by the link (e.g. [[...|church]]es. ).
+  sent = original_sent
   for m in set(re.findall(' %s %s (e?s) ' % (RSB, RSB), sent)):
     sent = sent.replace(' %s %s %s' % (RSB, RSB, m),
                         '%s %s %s' % (m, RSB, RSB,),)
@@ -112,11 +118,8 @@ def process_sentence(sent, titles):
     link, _, link_phrase = m.group(0), m.group(1), m.group(2)
     link_phrases.append(link_phrase)
     sent = sent.replace(link, SYMLINK)
-
   # Remove continuous delimiters, etc.
   # (caused by removing external links when the xml file was parsed).
-  # sent = re.sub('[\,;]\s?%s' % (RRB), RRB, sent)
-  # sent = re.sub('%s\s?[\,;]' % (LRB), LRB, sent)
   sent = re.sub('\\\/', '/', sent)
   sent = re.sub('([;\,\/] ){2,}', ', ', sent)
   sent = re.sub('%s\s*%s ' % (LRB, RRB), '', sent)
@@ -131,7 +134,7 @@ def process_sentence(sent, titles):
   sent = sent.split(' ')
   for i, idx in enumerate(link_idx):
     sent[idx] = link_phrases[i]
-  sent = ' '.join(sent).replace(LRB, '(').replace(RRB, ')')
+  sent = ' '.join(sent).replace(LRB, '(').replace(RRB, ')').replace(LSB, '{').replace(RSB, '')
 
   link_spans = [(title2qid[t], s, e) for t,s,e in link_spans if t in title2qid]
   return sent, link_spans
@@ -188,13 +191,11 @@ def process_paragraph(pid, ptitle, para_idx, paragraph, s_parser):
       sys.stdout.write("%s%s Links%s: %s\n" % (
         BOLD, idx, RESET, link_spans))
       sys.stdout.write("\n")
-  # Include sentences that include no links for now (the context may be used for something).
-  # results = [r for r in results if len(r[1]) > 0 ]
-  return results
+
+
+  return results  # res[sentence_idx] = (text, link_spans)
 
 def process_page(page, s_parser):
-  # Returns a 2nd order tensor.
-  # (tensor[paragraph_id][sentence_idx] = (text, link_spans))
   pid = page['pid']
   text = page['text']
   title = page['title']
@@ -210,13 +211,11 @@ def process_page(page, s_parser):
     res_paragraph = process_paragraph(pid, title, para_idx, para, s_parser)
 
     # Include paragraphs that include no links for now (the context may be used for something).
-    #if res_paragraph:
     res.append(res_paragraph)
-  return res
+  return res   # res[paragraph_id][sentence_idx] = (text, link_spans)
 
 #@timewatch
 def read_json_lines(source_path):
-  #
   if args.debug:
     sys.stdout.write(source_path + '\n')
   s_parser = corenlp.StanfordCoreNLP(corenlp_path=corenlp_dir,
@@ -225,16 +224,16 @@ def read_json_lines(source_path):
   with open(source_path) as f:
     for i, page in enumerate(f):
       j = json.loads(page)
-      pid = j['id'].encode('utf-8')
-      text = j['text'].encode('utf-8')
-      ptitle = to_title_format(j['title'].encode('utf-8'))
-      qid = title2qid[ptitle] if ptitle in title2qid else None
-      if not qid:
+      pid = j['id']
+      text = j['text']
+      ptitle = to_title_format(j['title'])
+      page_qid = title2qid[ptitle] if ptitle in title2qid else None
+      if not page_qid:
         continue
       page = {
         'title': ptitle,
         'pid': pid,
-        #'qid': qid,
+        'qid': page_qid,
         'text': text,
       }
       page_res = process_page(page, s_parser)
@@ -242,15 +241,31 @@ def read_json_lines(source_path):
       # Discard articles that contain no links.
       if not page_res:
         continue
-      # 'plain_text, [(title, start, end), ...]'
-      #res[title2qid[title]] = page_res
-      #res[pid] = page_res
-      res[qid] = page_res
+
+      # Arrange page_res.
+      page_text = []
+      page_links = OrderedDict()
+      for i, para in enumerate(page_res):
+        para_text = []
+        para_links = OrderedDict()
+        for j, (sent, links) in enumerate(para):
+          para_text.append(sent)
+          for link_qid, s, t in links:
+            para_links[link_qid] = (i, j, (s, t))
+        page_text.append(para_text)
+        page_links.update(para_links)
+      res[page_qid] = {
+        'title': page['title'],
+        'pid': page['pid'],
+        'qid': page['qid'],
+        'text': page_text,
+        'link': page_links,
+      }
   return res
 
 def read_all_pages():
   sys.stderr.write('Reading articles ...\n')
-  all_pathes = commands.getoutput('ls -d %s/*/wiki_*' % args.source_dir).split()
+  all_pathes = str(subprocess.getoutput('ls -d %s/*/wiki_*' % args.source_dir)).split()
   if args.max_wikifiles:
     all_pathes = all_pathes[:args.max_wikifiles]
 
@@ -266,7 +281,6 @@ def read_all_pages():
     n_finished_files += len(pathes)
     for r in res_process:
       res.update(r)
-    #return res
     if len(res) > count * 500000:
       count += 1
       sys.stderr.write("Finish reading %d/%d files (%d articles) ...\n" % (n_finished_files, len(all_pathes), len(res)))
@@ -276,7 +290,7 @@ def read_all_pages():
 
 def only_linked(pages):
   new_pages = OrderedDict()
-  for pid, page in pages.items():
+  for pid, page in list(pages.items()):
     # only linked sentences
     new_page = [[(sent, link_spans) for sent, link_spans in para if link_spans] for para in page]
     # only linked paragraphs
@@ -287,53 +301,67 @@ def only_linked(pages):
 
 def count(pages):
   n_articles = len(pages) 
-  n_paragraph = sum((len(page) for page in pages.values()))
-  n_sentence = sum((sum((len(para) for para in page)) for page in pages.values()))
-  n_links = sum((sum((sum((len(sent[1]) for sent in para)) for para in page)) for page in pages.values()))
-  sys.stderr.write("Number of Articles: %d \n" % n_articles)
-  sys.stderr.write("Number of Paragraphs: %d \n" % n_paragraph)
-  sys.stderr.write("Number of Sentences: %d \n" % n_sentence)
-  sys.stderr.write("Number of Links: %d \n" % n_links)
+  n_paragraph = sum([len(page['text']) for page in pages.values()])
+  n_sentence = sum([sum([len(para) for para in page['text']]) for page in pages.values()])
+  n_links = sum([len(page['link']) for page in pages.values()])
+  sys.stdout.write("\n")
+  sys.stdout.write("Number of Articles: %d \n" % n_articles)
+  sys.stdout.write("Number of Paragraphs: %d \n" % n_paragraph)
+  sys.stdout.write("Number of Sentences: %d \n" % n_sentence)
+  sys.stdout.write("Number of Links: %d \n" % n_links)
 
 
 @timewatch
 def create_dump(args):
   output_dir = args.output_dir
-  if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
-
-  output_file = 'pages.all.bin'
+  # Create json dumps.
+  output_file = 'pages.all.json'
   output_path = os.path.join(output_dir, output_file)
-  if os.path.exists(output_path) and not args.cleanup:
-    sys.stderr.write('Found pages.*.bin file ...\n')
-    pages = pickle.load(open(output_path, 'rb'))
-  else:
+  if not os.path.exists(output_path) or not args.cleanup:
     global title2qid
     title2qid = read_db(args.source_dir, args.dbuser, args.dbpass, 
                         args.dbhost, args.dbname)
     pages = read_all_pages()
-    pickle.dump(pages, open(output_path, 'wb'))
-
-  output_file = 'pages.only_linked.bin'
-  output_path = os.path.join(output_dir, output_file)
-  if os.path.exists(output_path) and not args.cleanup:
-    selected_pages = pickle.load(open(output_path, 'rb'))
   else:
-    selected_pages = only_linked(pages)
-    pickle.dump(selected_pages, open(output_path, 'wb'))
+    sys.stderr.write('Found dump files. \n') 
+    return
 
-  output_file = 'pages.bin'
+  # create a json dump.
+  with open(output_path, 'w') as f:
+    json.dump(pages, f, indent=4, ensure_ascii=False,)
+
+  with open(output_path + 'lines', 'a') as f:
+    for page in pages.values():
+      json.dump(page, f, ensure_ascii=False)
+      f.write('\n')
+
+  # Create pickle dumps.
+  output_file = 'pages.all.bin'
   output_path = os.path.join(output_dir, output_file)
+  pickle.dump(pages, open(output_path, 'wb'))
   sys.stderr.write('<All> \n')
   count(pages)
+  return 
+
+
+  # Create dumps only of linked sentences.
+  output_file = 'pages.only_linked.bin'
+  output_path = os.path.join(output_dir, output_file)
+  selected_pages = only_linked(pages)
+  pickle.dump(selected_pages, open(output_path, 'wb'))
   sys.stderr.write('<Selected> \n')
   count(selected_pages)
 
+
+  # Create pickle dumps as small chunks.
+  output_file = 'pages.bin'
+  output_path = os.path.join(output_dir, output_file)
   chunk_size = 100000
-  if args.cleanup or not commands.getoutput('ls -d %s/* | grep *\.bin.[0-9]\+' % output_dir).split():
+  if args.cleanup or not str(subprocess.getoutput('ls -d %s/* | grep *\.bin.[0-9]\+' % output_dir)).split():
     for i, d in itertools.groupby(enumerate(pages), lambda x: x[0] // chunk_size):
       chunk = {x[1]:pages[x[1]] for x in d}
       pickle.dump(chunk, open(output_path + '.%02d' %i, 'wb'))
+
   return pages
 
 
@@ -345,18 +373,18 @@ if __name__ == "__main__":
   desc = "This script creates wikiP2D corpus from Wikipedia dump sqls (page.sql, wbc_entity_usage.sql) and a xml file (pages-articles.xml) parsed by WikiExtractor.py (https://github.com/attardi/wikiextractor.git) with '--filter_disambig_pages --json' options."
   parser = argparse.ArgumentParser(description=desc)
   parser.add_argument('-o', '--output_dir', default='wikipedia/latest/extracted/tmp')
-  parser.add_argument('--source_dir', default='wikipedia/latest/extracted', 
+  parser.add_argument('-s', '--source_dir', default='wikipedia/latest/extracted', 
                       help='the directory of wiki_** files parsed by WikiExtractor.py from enwiki-***-pages-articles.xml')
+  parser.add_argument('-mw', '--max_wikifiles', default=0, type=int)
+  parser.add_argument('-npr','--n_process', default=1, type=int)
+  parser.add_argument('-npg','--n_paragraph', default=1, type=int, help='if None, this script reads all paragraphs in the paragraph.')
+  parser.add_argument('-nst','--n_sentence', default=0, type=int, help='if None, this script reads all sentences in the paragraph.')
+
   parser.add_argument('--dbuser', default='shoetsu')
   parser.add_argument('--dbpass', default='password')
   parser.add_argument('--dbhost', default='localhost')
   parser.add_argument('--dbname', default='wikipedia')
   parser.add_argument('--debug', default=True, type=str2bool)
-
-  parser.add_argument('-mw', '--max_wikifiles', default=0, type=int)
-  parser.add_argument('-npr','--n_process', default=1, type=int)
-  parser.add_argument('-npg','--n_paragraph', default=1, type=int, help='if None, this script reads all paragraphs in the paragraph.')
-  parser.add_argument('-nst','--n_sentence', default=1, type=int, help='if None, this script reads all sentences in the paragraph.')
   parser.add_argument('--cleanup', default=False, type=str2bool)
 
   args = parser.parse_args()

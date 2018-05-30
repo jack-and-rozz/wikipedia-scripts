@@ -61,7 +61,6 @@ def multi_process(func, *args):
       res = func(*args, **kwargs)
       return q.put((idx, res))
     return _wrapper
-
   workers = []
   # mp.Queue() seems to have a bug..? 
   # (stackoverflow.com/questions/13649625/multiprocessing-in-python-blocked)

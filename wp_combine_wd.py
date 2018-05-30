@@ -3,7 +3,7 @@ from orderedset import OrderedSet
 from pprint import pprint
 from collections import OrderedDict, defaultdict, Counter
 #import multiprocessing as mp
-import argparse, sys, os, time, json, commands, re, itertools, random, math
+import argparse, sys, os, time, json, subprocess, re, itertools, random, math
 from common import str2bool, timewatch, multi_process, flatten
 
 # plot statistics
@@ -15,7 +15,7 @@ except:
   pass
 
 try:
-   import cPickle as pickle
+   import pickle as pickle
 except:
    import pickle
 
@@ -34,9 +34,9 @@ def pages_stats(pages, min_qfreq):
       for h, (sent, link_spans) in enumerate(para):
         add_count(sent, link_spans)
 
-  all_q_freq = sorted([(k, v) for k, v in q_count.items()], key = lambda x: -x[1])
-  q_freq = sorted([(k, v) for k, v in q_count.items() if v >= min_qfreq], key = lambda x: -x[1])
-  w_freq = sorted([(k, v) for k, v in w_count.items()], key = lambda x: -x[1])
+  all_q_freq = sorted([(k, v) for k, v in list(q_count.items())], key = lambda x: -x[1])
+  q_freq = sorted([(k, v) for k, v in list(q_count.items()) if v >= min_qfreq], key = lambda x: -x[1])
+  w_freq = sorted([(k, v) for k, v in list(w_count.items())], key = lambda x: -x[1])
 
   #plot([q_freq, w_freq], ['Entities', 'Words'])
 
@@ -96,7 +96,7 @@ def preprocess(pages):
     text = text.decode('unicode-escape').encode('utf-8')
     return text
   res = OrderedDict()
-  for k, paragraphs in pages.items():
+  for k, paragraphs in list(pages.items()):
     try:
       res[k] = [[(_preprocess(text), links) for text, links in sentences] for sentences in paragraphs]
     except:
@@ -109,7 +109,7 @@ def sum_by_qid(pages, min_qfreq):
   link_phrases = defaultdict(set)
   w_count = defaultdict(int)
 
-  for paragraphs in pages.values():
+  for paragraphs in list(pages.values()):
     for sentences in paragraphs:
       for sentence in sentences:
         text, links = sentence
@@ -120,13 +120,13 @@ def sum_by_qid(pages, min_qfreq):
           res[qid].append((text, start, end))
           link_phrases[qid].add(' '.join(text.split()[start:end+1]))
   # pages_by_qid[qid] = [(text0, start0, end0), ...]
-  pages_by_qid = [(k,v) for k,v in res.items() if len(v) >= min_qfreq]
+  pages_by_qid = [(k,v) for k,v in list(res.items()) if len(v) >= min_qfreq]
   pages_by_qid = OrderedDict(sorted(pages_by_qid, key=lambda x: -len(x[1])))
 
   # link_phrases[qid] = set(phrase0, phrase1, ...)
   link_phrases = {k:link_phrases[k] for k in pages_by_qid}
 
-  w_freq = sorted([(k, v) for k, v in w_count.items()], key = lambda x: -x[1])
+  w_freq = sorted([(k, v) for k, v in list(w_count.items())], key = lambda x: -x[1])
   sys.stdout.write("Number of words: %d\n" % sum((n for _, n in w_freq)))
   sys.stdout.write("Word vocab size: %d\n" % len(w_freq))
   return pages_by_qid, link_phrases
@@ -157,7 +157,7 @@ def read_dumps_multi(dump_files, n_process): # 別に早くならなかった
   return pages
 
 def check_linked_phrases(link_phrases, vocab):
-  phrases = set(flatten([p for p in link_phrases.values()]))
+  phrases = set(flatten([p for p in list(link_phrases.values())]))
   def oov_rate(vocab):
     tmp = set(vocab)
     cnt = 0
@@ -185,7 +185,7 @@ def to_stderr(func):
 
 def select_from_od(od, n):
   res = OrderedDict()
-  for k in od.keys()[:n]:
+  for k in list(od.keys())[:n]:
     res[k] = od[k]
   return res
 
@@ -194,7 +194,7 @@ def process_wikipedia(args):
   if not os.path.exists(args.target_dir + '/pages.minq%d.bin' % args.min_qfreq) or args.cleanup:
     dump_dir = args.wp_source_dir
     sys.stderr.write('Reading wikipedia chunked dump files from \'%s\'\n' % dump_dir)
-    dump_files = commands.getoutput('ls -d %s/* | grep pages\..*\.bin.[0-9]' % dump_dir).split()
+    dump_files = subprocess.getoutput('ls -d %s/* | grep pages\..*\.bin.[0-9]' % dump_dir).split()
     if args.n_files:
       dump_files = dump_files[:args.n_files]
     pages = read_dumps_multi(dump_files, args.n_process) # list of pages per a process.
@@ -215,15 +215,15 @@ def combine_wikidata(pages, items, props, triples, _n_objects=0, _n_props=0):
   n_objects = _n_objects
   n_props = _n_props
   # A subject must be linked in a page and registered as an item.
-  subjects = set(pages.keys()).intersection(items.keys())
+  subjects = set(pages.keys()).intersection(list(items.keys()))
 
   # Get top-n frequent relations and objects.
-  freq_props = sorted(Counter([t[1] for t in triples]).items(), 
+  freq_props = sorted(list(Counter([t[1] for t in triples]).items()), 
                       key=lambda x: -x[1])
   n_props = n_props if n_props else len(freq_props)
   freq_props = OrderedDict(freq_props[:n_props])
 
-  freq_objects = sorted(Counter([t[2] for t in triples]).items(), 
+  freq_objects = sorted(list(Counter([t[2] for t in triples]).items()), 
                         key=lambda x: -x[1])
   freq_objects = [(o, f) for o, f in freq_objects if o in items]
   n_objects = n_objects if n_objects else len(freq_objects)
@@ -236,11 +236,11 @@ def combine_wikidata(pages, items, props, triples, _n_objects=0, _n_props=0):
   relations = OrderedDict()
   objects = OrderedDict()
 
-  s_freq = OrderedDict(sorted(Counter([s for s,r,o in selected_triples]).items(), 
+  s_freq = OrderedDict(sorted(list(Counter([s for s,r,o in selected_triples]).items()), 
                               key=lambda x: -x[1]))
-  r_freq = OrderedDict(sorted(Counter([r for s,r,o in selected_triples]).items(), 
+  r_freq = OrderedDict(sorted(list(Counter([r for s,r,o in selected_triples]).items()), 
                               key=lambda x: -x[1]))
-  o_freq = OrderedDict(sorted(Counter([o for s,r,o in selected_triples]).items(), 
+  o_freq = OrderedDict(sorted(list(Counter([o for s,r,o in selected_triples]).items()), 
                               key=lambda x: -x[1]))
 
   for k in s_freq:
@@ -280,15 +280,10 @@ def main(args):
 
   # files = ['items.bin']
   # items, = load_wd_dump(files)
-  qid = 'Q486396'
-  print 'items.bin', qid, items[qid]
-
   sys.stdout.write("(all) Number of Items, Props, Triples = %d, %d, %d\n" % (len(items), len(props), len(triples)))
 
   # Use only the triples where the entity linked in wikipedia is the subject.
-  #for n_objects in [15000, 30000, 50000, 100000, 200000, 500000, 0]:
   for n_objects in [15000, 30000, 50000, 100000, 200000]:
-    #for n_props in [300, 500, 1000, 0]:
     for n_props in [300, 500, 1000]:
       suffix = '.minq%d.o%dr%d.bin' % (args.min_qfreq, n_objects, n_props)
       if not os.path.exists(args.target_dir + '/relations' + suffix):
@@ -299,11 +294,7 @@ def main(args):
         pickle.dump(relations, open(args.target_dir + '/relations' + suffix, 'wb'))
         pickle.dump(objects, open(args.target_dir + '/objects' + suffix, 'wb'))
         pickle.dump(summed_triples, open(args.target_dir + '/triples' + suffix, 'wb'))
-        
         exit(1)
-        # pprint(subjects['Q486396'])
-        # pprint(items['Q486396'])
-        # exit(1)
 
 if __name__ == "__main__":
   desc = ""

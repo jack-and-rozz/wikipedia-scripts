@@ -1,9 +1,9 @@
 #coding: utf-8
 from pprint import pprint
-import argparse, collections, re, os, time, sys
+import argparse, collections, re, os, time, sys, codecs
 
 try:
-   import cPickle as pickle
+   import pickle as pickle
 except:
    import pickle
 
@@ -24,7 +24,7 @@ def str2bool(v):
   return v.lower() in ("yes", "true", "t", "1")
 
 def str2arr(v):
-  return v.split(',')
+  return [x for x in v.split(',') if x]
 
 def create_entity_template():
   return {
@@ -34,7 +34,7 @@ def create_entity_template():
     'freq': 0,
   }
 
-def is_a_relation(triple):
+def is_an_edge(triple):
   pattern = '[PQ][0-9]+'
   ids = [re.match(pattern, x.split('/')[-1][:-1])
          for x in triple]
@@ -55,7 +55,7 @@ def read_data(args):
     l = l.split(' ')
     subj_url, rel_url, obj_url = l[0], l[1], " ".join(l[2:-1])
     # Extract only (entity, prop, entity) or (entity | prop, type, value) triples.
-    triple = is_a_relation((subj_url, rel_url, obj_url))
+    triple = is_an_edge((subj_url, rel_url, obj_url))
     if triple:
       triples.append(triple) 
       for x in triple:
@@ -68,7 +68,7 @@ def read_data(args):
         entities[obj]['freq'] += 1
       entities[rel]['freq'] += 1
 
-    # Extract important values (name, description, aka.)
+    # Extract values (name, description, aka.)
     elif is_a_value((subj_url, rel_url, obj_url)):
       idx = [name_url, description_url, aka_url].index(rel_url)
       v_type = ['name', 'desc', 'aka'][idx]
@@ -76,6 +76,8 @@ def read_data(args):
       m = re.match(value, obj_url)
       if m: # values must be written in target lang.
         v = m.group(1)
+        v = ' '.join([x for x in v.split() if x]).strip()
+        v = codecs.decode(v, 'unicode-escape')
       else:
         continue
       subj = subj_url.split('/')[-1][:-1] # "<.+/Q[0-9+]>" -> "Q[0-9+]"
@@ -94,7 +96,8 @@ def read_data(args):
     if args.max_rows and i > args.max_rows:
       break
 
-  sys.stderr.write("\rProgress rate: %f%% (%d/%d) \n" % (100, i+1, n_line))
+  sys.stderr.write("\rProgress rate: %f%% (%d/%d) " % (100, i+1, n_line))
+  sys.stderr.write("\n")
   sys.stderr.flush()
   return entities, triples
 
@@ -105,7 +108,7 @@ def timewatch(func):
     start = time.time()
     result = func(*args, **kwargs)
     end = time.time()
-    print (func.__name__, ": ", end - start)
+    print((func.__name__, ": ", end - start))
     return result
   return wrapper
 
@@ -113,14 +116,14 @@ def timewatch(func):
 
 def sort_by_freq(entities, required_value_types=[]):
   def is_complete(entity):
-    if False not in [True if entities[k][v_type] else False for v_type in required_value_types]:
+    if False not in [True if entity[v_type] else False for v_type in required_value_types]:
       return True
     else:
       return False
     
   if required_value_types:
     # Remove incomplete (no name) entities due to lack of data
-    e_complete = [k for k in entities if is_complete(k)]
+    e_complete = [k for k in entities if is_complete(entities[k])]
     e_complete = {k:entities[k] for k in e_complete}
   else:
     e_complete = entities
@@ -135,47 +138,69 @@ def sort_by_freq(entities, required_value_types=[]):
     props[k] = e_complete[k]
   return items, props
 
+
+def dump_as_text(data, file_path):
+  with open(file_path, 'w') as f:
+    if isinstance(data, dict): # items, props
+      for k, v in list(data.items()):
+        name = v['name']
+        desc = v['desc']
+        freq = str(v['freq'])
+        aka = v['aka']
+        if type(aka) == list:
+          aka = ",".join([x for x in aka])
+        columns = [k, name, freq, desc, aka]
+        f.write('%s\n' % '\t'.join(columns))
+    elif isinstance(data, list): # triples
+      for l in data:
+        f.write('%s\n' % '\t'.join(l))
+    else:
+      raise Exception
+  
+
 @timewatch
 def main(args):
-  ent_fn = "%s/%s" % (args.target_dir, 'entities') + '.bin'
-  items_fn = "%s/%s" % (args.target_dir, 'items') + '.bin'
-  props_fn = "%s/%s" % (args.target_dir, 'properties') + '.bin'
-  tri_fn = "%s/%s" % (args.target_dir, 'triples') + '.bin'
-  # 保存する時はitemとpropで別にすべき？
-  if os.path.exists(items_fn) and os.path.exists(props_fn) and os.path.exists(tri_fn) and not args.cleanup:
-    #entities = pickle.load(open(ent_fn, 'rb'))
-    #items = pickle.load(open(items_fn, 'rb'))
-    #props = pickle.load(open(props_fn, 'rb'))
-    #triples = pickle.load(open(tri_fn, 'rb'))
+  items_fn = "%s/%s" % (args.target_dir, 'items') 
+  props_fn = "%s/%s" % (args.target_dir, 'properties')
+  tri_fn = "%s/%s" % (args.target_dir, 'triples') 
+
+  if os.path.exists(items_fn + '.bin') and os.path.exists(props_fn + '.bin') and os.path.exists(tri_fn + '.bin') and not args.cleanup:
     pass
   else:
     entities, triples = read_data(args)
-    items, props = sort_by_freq(entities, args.remove_anonymous_entities)
+    items, props = sort_by_freq(entities, args.required_value_types)
     #entities, triples = validate_kb(entities, triples)
     if not os.path.exists(args.target_dir):
       os.makedirs(args.target_dir)
     if not os.path.exists(items_fn):
-      pickle.dump(items, open(items_fn, 'wb'))
+      pickle.dump(items, open(items_fn + '.bin', 'wb'))
     if not os.path.exists(props_fn):
-      pickle.dump(props, open(props_fn, 'wb'))
+      pickle.dump(props, open(props_fn + '.bin', 'wb'))
     if not os.path.exists(tri_fn):
-      pickle.dump(triples, open(tri_fn, 'wb'))
-    if not os.path.exists(ent_fn):
-      pickle.dump(entities, open(ent_fn, 'wb'))
+      pickle.dump(triples, open(tri_fn + '.bin', 'wb'))
 
-    print 'items, props, triples = (%d, %d, %d)' % (len(items), len(props), len(triples))
+    print('items, props, triples = (%d, %d, %d)' % (len(items), len(props), len(triples)))
+
+  if os.path.exists(items_fn + '.txt') and os.path.exists(props_fn + '.txt') and os.path.exists(tri_fn + '.txt') and not args.cleanup:
+    pass
+  else:
+    dump_as_text(items, items_fn + '.txt')
+    dump_as_text(props, props_fn + '.txt')
+    dump_as_text(triples, tri_fn + '.txt')
 
 if __name__ == "__main__":
   desc = 'This script is for preprocessing latest-truthy.nt file in \'https://dumps.wikimedia.org/wikidatawiki/entities/\''
   parser = argparse.ArgumentParser(description=desc)
-  parser.add_argument('--target_dir', default='wikidata/latest/extracted/all')
-  parser.add_argument('--source_path', default='wikidata/latest/latest-truthy.nt')  
-  parser.add_argument('--lang', default='en')
-  parser.add_argument('--max_rows', default=None, type=int)
+  parser.add_argument('-t', '--target_dir', 
+                      default='wikidata/latest/extracted/all')
+  parser.add_argument('-s', '--source_path', 
+                      default='wikidata/latest/latest-truthy.nt')  
+  parser.add_argument('-l', '--lang', default='en')
+  parser.add_argument('-mr', '--max_rows', default=None, type=int)
   parser.add_argument('--count_subj_prop', default=False, type=str2bool)
   parser.add_argument('--count_obj_prop', default=False, type=str2bool)
   parser.add_argument('--cleanup', default=False, type=str2bool)
   parser.add_argument('--required_value_types', default='name', type=str2arr,
-                help='a list-string of required (a node must have) value types (delimited by ",").')
+                      help='a list-string of required value types which an entity must have (delimited by ",").')
   args = parser.parse_args()
   main(args)

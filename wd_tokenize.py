@@ -5,7 +5,7 @@ import argparse, sys, os, time, json, re, itertools, random, itertools, math
 from pprint import pprint
 
 try:
-  import commands
+  import subprocess
 except:
   import subprocess as commands
   
@@ -71,19 +71,10 @@ RSB = '-RSB-'
 #   return res
 
 
-def preprocess(sent):
-  # Remove the phrases in parenthesis.
-  pattern = '\s?\(.+?\)'
-  for m in re.findall(pattern, sent):
-    sent = sent.replace(m, '')
-  pattern = '\s?\[.+?\]'
-  for m in re.findall(pattern, sent):
-    sent = sent.replace(m, '')
-  return sent
 
 def dump_as_text(file_path, entities):
   with open(file_path, 'w') as f:
-    for k, v in entities.items():
+    for k, v in list(entities.items()):
       name = v['name']
       desc = v['desc']
       freq = str(v['freq'])
@@ -92,77 +83,137 @@ def dump_as_text(file_path, entities):
         aka = ",".join([x for x in aka])
       columns = [k, name, freq, desc, aka]
       line = '\t'.join(columns) + '\n'
-      #f.write(line.encode('utf-8'))
       try:
-        f.write(line.encode('utf-8'))
+        f.write(line)
       except Exception as e:
-        print e
-        print type(name), name
-        print type(freq), freq
-        print type(desc), desc
-        print type(aka), aka
-        print type(line), line
+        print(e)
+        print(type(name), name)
+        print(type(freq), freq)
+        print(type(desc), desc)
+        print(type(aka), aka)
+        print(type(line), line)
         exit(1)
 
-@timewatch
-def output_and_parse(entities, file_path):
-  # Output the original .bin file as a .txt file and parse it by stanford tokenizer.
-  for k, v in entities.items():
-    entities[k]['desc'] = preprocess(entities[k]['desc']).decode('unicode-escape')
-    entities[k]['aka'] = preprocess(' , '.join(entities[k]['aka'])).decode('unicode-escape')
-    entities[k]['name'] = entities[k]['name'].decode('unicode-escape')
-  if not os.path.exists(file_path) or args.cleanup:
-    dump_as_text(file_path, entities)
+def preprocess(sent):
+  # Remove the phrases in parenthesis.
+  pattern = '\s?\(.+?\)'
+  for m in re.findall(pattern, sent):
+    sent = sent.replace(m, ' ')
+  pattern = '\s?\[.+?\]'
+  for m in re.findall(pattern, sent):
+    sent = sent.replace(m, ' ')
+  sent = sent.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+  sent = ' '.join([x for x in sent.split()]).strip()
+  return sent
 
-  #cmd = ' %s | java edu.stanford.nlp.process.PTBTokenizer -preserveLines ' % (file_path)
-  cmd = '%s' % (file_path)
-  name = commands.getoutput('cut -f2 ' + cmd).split('\n')
-  desc = commands.getoutput('cut -f4 ' + cmd).split('\n')
-  aka = commands.getoutput('cut -f5 ' + cmd).split('\n')
-  log = "%d %d %d %d\n" %(len(entities), len(name), len(desc), len(aka))
+def postprocess(sent):
+  sent = sent.replace('\t', ' ').replace(LRB, '(').replace(RRB, ')').replace(LSB, '{').replace(RSB, '}').strip()
+  return sent
+
+
+@timewatch
+def output_and_parse(source_filepath, text_filepath):
+  # Output the original .bin file as a .txt file and parse it by stanford tokenizer.
+
+  if not os.path.exists(text_filepath) or args.cleanup:
+    entities = pickle.load(open(source_filepath, 'rb'))
+    for k, v in list(entities.items()):
+      entities[k]['desc'] = preprocess(entities[k]['desc'])
+      entities[k]['aka'] = preprocess(' , '.join(entities[k]['aka']))
+      name = entities[k]['name']
+      name = name.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+      name = ' '.join([x for x in name.split()]).strip()
+      entities[k]['name'] = name
+    dump_as_text(text_filepath, entities)
+  else:
+    entities = OrderedDict()
+
+  # Cut the stored file.
+  qids = subprocess.getoutput('cut -f1 %s' % text_filepath).split('\n')
+  freq = subprocess.getoutput('cut -f3 %s' % text_filepath).split('\n')
+  freq = [int(x) for x in freq]
+
+  # Cut the stored file and apply Tokenizer.
+  tmp_filepath = text_filepath + '.name'
+  cmd_tmp = 'cut -f%d %s | java edu.stanford.nlp.process.PTBTokenizer -preserveLines > %s 2>/dev/null'
+  if not os.path.exists(tmp_filepath):
+    cmd = cmd_tmp % (2, text_filepath, tmp_filepath)
+    subprocess.getoutput(cmd)
+  name = subprocess.getoutput('cat %s' % tmp_filepath).split('\n')
+  name = [postprocess(x) for x in name]
+
+  tmp_filepath = text_filepath + '.desc'
+  if not os.path.exists(tmp_filepath):
+    cmd = cmd_tmp % (4, text_filepath, tmp_filepath)
+    subprocess.getoutput(cmd)
+  desc = subprocess.getoutput('cat %s' % tmp_filepath).split('\n')
+  desc = [postprocess(x) for x in desc]
+
+  tmp_filepath = text_filepath + '.aka'
+  if not os.path.exists(tmp_filepath):
+    cmd = cmd_tmp % (5, text_filepath, tmp_filepath)
+    subprocess.getoutput(cmd)
+  aka = subprocess.getoutput('cat %s' % tmp_filepath).split('\n')
+  aka = [postprocess(x) for x in aka]
+
+  log = "qids, name, desc, aka = %d %d %d %d\n" % (len(qids), len(name), len(desc), len(aka))
   sys.stderr.write(log)
-  #exit(1)
+
+  assert len(qids) == len(name) == len(desc) == len(aka)
   i = 0
-  for qid, n,d,a in zip(entities, name, desc, aka):
+
+  for qid, n, f, d, a in zip(qids, name, freq, desc, aka):
+    if not qid in entities:
+      entities[qid] = {}
+    entities[qid]['qid'] = qid
     entities[qid]['name'] = n
+    entities[qid]['freq'] = f
     entities[qid]['desc'] = d
-    entities[qid]['aka'] = set(a.split(' , '))
+    entities[qid]['aka'] = a.split(' , ')
   return entities
 
 
+def dump_as_json(entities, file_path, as_jsonlines=True):
+  if as_jsonlines:
+    with open(file_path, 'a') as f:
+      for entity in entities.values():
+        json.dump(entity, f, ensure_ascii=False)
+        f.write('\n')
+  else:
+    with open(file_path, 'w') as f:
+      json.dump(entities, f, indent=4, ensure_ascii=False)
+
+  
 @timewatch
 def main(args):
-  if not os.path.exists(args.source_dir + '/properties.tokenized.bin') or args.cleanup:
-    props = pickle.load(open(args.source_dir + '/properties.bin', 'rb'))
-    props = output_and_parse(props, args.source_dir + '/properties.txt')
-    pickle.dump(props, open(args.source_dir + '/properties.tokenized.bin', 'wb'))
-    #dump_as_text(args.source_dir + '/props.tokenized.txt', props)
-  else:
-    sys.stderr.write('Tokenized dump found. Loading %s\n' % os.path.join(args.source_dir, '/props.tokenized.bin'))
-    props = pickle.load(open(args.source_dir + '/properties.tokenized.bin', 'rb'))
+  # Process Properties.
+  source_filepath = args.source_dir + '/properties.bin'
+  text_filepath = args.source_dir + '/properties.txt'
+  target_filepath = args.source_dir + '/properties.tokenized.jsonlines'
+  if not os.path.exists(target_filepath) or args.cleanup:
+    #props = pickle.load(open(source_filepath, 'rb'))
+    props = output_and_parse(source_filepath, text_filepath)
+    dump_as_json(props, target_filepath, as_jsonlines=True)
+    target_filepath = args.source_dir + '/properties.tokenized.json'
+    dump_as_json(props, target_filepath, as_jsonlines=False)
+
+  #exit(1)
+  source_filepath = args.source_dir + '/items.bin'
+  text_filepath = args.source_dir + '/items.txt'
+  target_filepath = args.source_dir + '/items.tokenized.jsonlines'
+  # Process Items.
+  if not os.path.exists(target_filepath) or args.cleanup:
+    #items = pickle.load(open(source_filepath, 'rb'))
+    items = output_and_parse(source_filepath, text_filepath)
+    dump_as_json(items, target_filepath, as_jsonlines=True)
+    target_filepath = args.source_dir + '/items.tokenized.json'
+    dump_as_json(items, target_filepath, as_jsonlines=False)
 
 
-  if not os.path.exists(args.source_dir + '/items.tokenized.bin') or args.cleanup:
-    items = pickle.load(open(args.source_dir + '/items.bin', 'rb'))
-    qid = 'Q486396'
-    print 'items.bin', qid, items[qid]
-
-    items = output_and_parse(items, args.source_dir + '/items.txt')
-    pickle.dump(items, open(args.source_dir + '/items.tokenized.bin', 'wb'))
-    qid = 'Q486396'
-    print 'items.bin', qid, items[qid]
-    #dump_as_text(args.source_dir + '/items.tokenized.txt', items)
-  else:
-    sys.stderr.write('Tokenized dump found. Loading %s\n' % os.path.join(args.source_dir, '/items.tokenized.bin'))
-    items = pickle.load(open(args.source_dir + '/items.tokenized.bin', 'rb'))
-
-
-  #pprint(dict(props))
-  #pprint()
 
 
 if __name__ == "__main__":
-  desc = ''
+  desc = 'Tokenize items.bin and properties.bin in args.source_dir and store the tokenized files there.'
   parser = argparse.ArgumentParser(description=desc)
   parser.add_argument('--source_dir', default='wikidata/latest/extracted/all')
   parser.add_argument('--cleanup', default=False, type=str2bool)

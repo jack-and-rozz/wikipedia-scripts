@@ -4,10 +4,10 @@ from pprint import pprint
 from wp_extract_all import count, BOLD, RED, RESET, color_link
 from wp_combine_wd import read_dumps
 try:
-   import cPickle as pickle
+   import pickle as pickle
 except:
    import pickle
-import commands
+import subprocess
 
 def print_article(qid, article):
   for para_idx, paragraph in enumerate(article):
@@ -33,16 +33,16 @@ def read2(pathes):
 @timewatch
 def main(args):
   cmd = 'ls -d %s/pages.bin.*' % args.source_dir
-  pathes = commands.getoutput(cmd).split('\n')[::-1]
+  pathes = subprocess.getoutput(cmd).split('\n')[::-1]
 
   if args.max_files:
     pathes = pathes[:args.max_files]
 
   data = read(pathes)
-  print type(data), len(data)
+  print(type(data), len(data))
 
   if args.print_all:
-    for qid, article in data.items():
+    for qid, article in list(data.items()):
       print_article(qid, article)
 
   count(data)

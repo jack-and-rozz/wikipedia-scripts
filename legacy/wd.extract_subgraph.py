@@ -4,13 +4,13 @@ import argparse, re, os, time, sys
 from collections import OrderedDict
 import common
 try:
-  import cPickle as pickle
+  import pickle as pickle
 except:
    import pickle
 
 def select_from_od(od, n):
   res = OrderedDict()
-  for k in od.keys()[:n]:
+  for k in list(od.keys())[:n]:
     res[k] = od[k]
   return res
 
@@ -24,7 +24,7 @@ def timewatch(func):
     start = time.time()
     result = func(*args, **kwargs)
     end = time.time()
-    print (func.__name__, ": ", end - start)
+    print((func.__name__, ": ", end - start))
     return result
   return wrapper
 
@@ -40,18 +40,18 @@ def remove_unused_entities(triples, items, props):
   unused_props = set(props.keys()) - used_props
   i = OrderedDict()
   p = OrderedDict()
-  for k, v in items.items():
+  for k, v in list(items.items()):
     if k not in unused_items:
       i[k] = v
-  for k, v in props.items():
+  for k, v in list(props.items()):
     if k not in unused_props:
       p[k] = v
   return i, p
 
 @timewatch
 def main(args):
-  print '----------------------'
-  print "i%dp%d" % (args.max_items, args.max_props)
+  print('----------------------')
+  print("i%dp%d" % (args.max_items, args.max_props))
   target_dir = os.path.join(args.source_dir, "i%dp%d" % (args.max_items, args.max_props))
   s_items_fh = "%s/%s" % (args.source_dir, 'items')
   s_props_fh = "%s/%s" % (args.source_dir, 'properties')
@@ -65,8 +65,8 @@ def main(args):
     items = pickle.load(open(t_items_fh + '.bin', 'rb'))
     props = pickle.load(open(t_props_fh + '.bin', 'rb'))
     triples = pickle.load(open(t_triples_fh + '.bin', 'rb'))
-    for k,v in items.items():
-      print k
+    for k,v in list(items.items()):
+      print(k)
       pprint(v)
   else:
     # load data
@@ -101,13 +101,13 @@ def main(args):
     @timewatch
     def dump_as_text():
       with open(items_fh + ".txt", 'w') as f:
-        for k, v in items.items():
+        for k, v in list(items.items()):
           columns = [k, v['name'], str(v['freq']), v['desc'], ",".join(v['aka'])]
           line = '\t'.join(columns) + '\n'
           f.write(line)
 
       with open(props_fh + ".txt", 'w') as f:
-        for k, v in props.items():
+        for k, v in list(props.items()):
           columns = [k, v['name'], str(v['freq']), v['desc'], ",".join(v['aka'])]
           line = '\t'.join(columns) + '\n'
           f.write(line)

@@ -2,12 +2,12 @@
 from orderedset import OrderedSet
 from pprint import pprint
 from collections import OrderedDict, defaultdict, Counter
-import argparse, sys, os, time, json, commands, re, itertools, random, math
+import argparse, sys, os, time, json, subprocess, re, itertools, random, math
 from common import str2bool, timewatch, multi_process, flatten
 import common
 
 try:
-   import cPickle as pickle
+   import pickle as pickle
 except:
    import pickle
 
@@ -19,7 +19,7 @@ def load_or_create_chunks(target_dir, filename):
     os.makedirs(target_dir)
 
   chunk_size = 10000
-  if args.cleanup or commands.getoutput('ls -d %s/* | grep "%s\.[0-9]\+"' % (target_dir, filename)).split()[0] == 'ls:':
+  if args.cleanup or subprocess.getoutput('ls -d %s/* | grep "%s\.[0-9]\+"' % (target_dir, filename)).split()[0] == 'ls:':
     sys.stdout.write('Create new Wikipedia page chunks from %s to %s' % (os.path.join(args.source_dir, filename), output_path))
     data = pickle.load(open(os.path.join(args.source_dir, filename), 'rb'))
     for i, d in itertools.groupby(enumerate(data), lambda x: x[0] // chunk_size):
@@ -28,7 +28,7 @@ def load_or_create_chunks(target_dir, filename):
   else:
     sys.stdout.write('Wikipedia page chunks are found at %s\n' % (target_dir))
     data = OrderedDict()
-    chunk_files = commands.getoutput('ls -d %s/* | grep "%s\.[0-9]\+"' % (target_dir, filename)).split()
+    chunk_files = subprocess.getoutput('ls -d %s/* | grep "%s\.[0-9]\+"' % (target_dir, filename)).split()
     if args.n_files:
       chunk_files.reverse()
       chunk_files = chunk_files[:args.n_files]
@@ -80,7 +80,7 @@ def create_dataset(pages, subjects, relations, objects, triples,
 def print_stat(ds):
   
   for k in ['train', 'valid', 'test']:
-    stat = (len(ds['subjects'][k]),  sum([len(a) for a in ds['articles'][k].values()]), sum([len(t) for t in ds['triples'][k].values()]))
+    stat = (len(ds['subjects'][k]),  sum([len(a) for a in list(ds['articles'][k].values())]), sum([len(t) for t in list(ds['triples'][k].values())]))
     n_subjects, n_articles, n_triples = stat
     sys.stdout.write('(%s): (articles, triples, subjects) = %d %d %d\n' % (k, n_articles, n_triples, n_subjects))
   n_relations, n_objects = len(ds['relations']), len(ds['objects'])
