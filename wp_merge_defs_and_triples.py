@@ -58,14 +58,14 @@ def main(args):
     sys.stdout.write("Merging data...\n")
     merged = merge_data(pages, items, triples)
     sys.stdout.write("Dumping data...\n")
-    dump_as_json(merged, args.target_dir + 'merged.jsonlines', as_jsonlines=True)
-    dump_as_json(merged, args.target_dir + 'merged.json', as_jsonlines=False)
-    sys.stdout.write("Done. Output files: %s\n (and *.jsonlines)" % args.target_dir + '/merged.json')
+    dump_as_json(merged, args.target_dir + '/merged.jsonlines', as_jsonlines=True)
+    dump_as_json(merged, args.target_dir + '/merged.json', as_jsonlines=False)
+    sys.stdout.write("Done. Output files: %s\n (and *.jsonlines)\n" % args.target_dir + '/merged.json')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Script that merges pages.all.jsonlines, items.tokenized.jsonlines, and triples.txt together into merged.{json|jsonlines}.')
-    parser.add_argument('--wp_source_dir', default='/home/shoetsu/wikiP2D-scripts/wp.dumps.p1s0')  # TODO: fix default directory
-    parser.add_argument('--wd_source_dir', default='/home/shoetsu/wikiP2D-scripts/wd.dumps.all') #TODO: fix default directory
-    parser.add_argument('--target_dir', default='/data/ishiwatari/wikiP2D')  # TODO: fix default directory
+    parser.add_argument('--wp_source_dir', default='wp.dumps.p1s0', help='directory that includes outputs of wp_extract_all.py')
+    parser.add_argument('--wd_source_dir', default='wd.dumps.all', help='directory that includes  outputs of wd_extract_all.py')
+    parser.add_argument('target_dir', help='path of output files')
     args = parser.parse_args()
     main(args)
