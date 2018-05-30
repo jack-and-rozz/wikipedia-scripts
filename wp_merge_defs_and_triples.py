@@ -60,7 +60,7 @@ def main(args):
     sys.stdout.write("Dumping data...\n")
     dump_as_json(merged, args.target_dir + '/merged.jsonlines', as_jsonlines=True)
     dump_as_json(merged, args.target_dir + '/merged.json', as_jsonlines=False)
-    sys.stdout.write("Done. Output files: %s\n (and *.jsonlines)\n" % args.target_dir + '/merged.json')
+    sys.stdout.write("Done. Output files: %s (and *.jsonlines)\n" % args.target_dir + '/merged.json')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Script that merges pages.all.jsonlines, items.tokenized.jsonlines, and triples.txt together into merged.{json|jsonlines}.')
