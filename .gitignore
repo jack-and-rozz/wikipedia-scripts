@@ -1,6 +1,9 @@
+*.log
+tmp
 logs
 __pycache__
 *.pyc
 nohup.out
 .#*
 .fuse*
+legacy
