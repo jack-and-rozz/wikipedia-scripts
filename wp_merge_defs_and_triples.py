@@ -39,7 +39,7 @@ def merge_data(pages, items, triples):
             for key in [(qid_subj, qid_obj), (qid_obj, qid_subj)]: # find both of (subj, rel, obj) and (obj, rel, subj)
                 if len(triples[key]) > 0:
                     for rel in triples[key]:
-                        merged[qid_subj]['triples'].append((qid_subj, rel, qid_obj))
+                        merged[qid_subj]['triples'].append((key[0], rel, key[1]))
 
         # extract definitions from items.tokenized.jsonlines and add them to merged data
         merged[qid_subj]['desc'] = ''
