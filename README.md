@@ -20,12 +20,8 @@ python wd.tokenize.py
 python wp.extract_all.py
 ```
 
-### 4. Combine Two data.
+### 4. Merge Wikidata definitions and triples into the json file extracted from Wikipedia.
 ```
-python wp.combine_wd.py
+python wp_merge_defs_and_triples.py target_dir
 ```
 
-### 5. Create wikiP2D dataset.
-```
-python create_dataset.py
-```
