@@ -12,11 +12,24 @@ import argparse, sys, os, time, json, re, itertools, random, itertools
 ##              Utils
 ############################################
 
-class dotdict(dict):
+class dotDict(dict):
   __getattr__ = dict.__getitem__
   __setattr__ = dict.__setitem__
   __delattr__ = dict.__delitem__
 
+class recDotDict(dict):
+  __getattr__ = dict.__getitem__
+  __setattr__ = dict.__setitem__
+  __delattr__ = dict.__delitem__
+  def __init__(self, _dict={}):
+    for k in _dict:
+      if isinstance(_dict[k], dict):
+        _dict[k] = recDotDict(_dict[k])
+      if isinstance(_dict[k], list):
+        for i,x in enumerate(_dict[k]):
+          if isinstance(x, dict):
+            _dict[k][i] = dotDict(x)
+    super(recDotDict, self).__init__(_dict)
 
 class rec_dotdefaultdict(defaultdict):
   __getattr__ = dict.__getitem__

@@ -18,10 +18,12 @@ BOLD = "\033[1m" + UNDERLINE
 
 RESET = "\033[0m"
 
-LRB = '-LRB-'
-LSB = '-LSB-'
-RRB = '-RRB-'
-RSB = '-RSB-'
+LRB = '-LRB-' # (
+RRB = '-RRB-' # )
+LSB = '-LSB-' # [
+RSB = '-RSB-' # ]
+LCB = '-LCB-' # {
+RCB = '-RCB-' # }
 
 import corenlp
 corenlp_dir = os.path.join(os.environ['HOME'], 
@@ -95,6 +97,7 @@ def read_db(target_dir, dbuser, dbpass, dbhost, dbname):
 def color_link(text, link_spans):
   text = text.split(' ')
   for _, start, end in link_spans:
+    assert end < len(text)
     text[start] = RED + text[start]
     text[end] = text[end] + RESET
   return ' '.join(text)
@@ -134,7 +137,7 @@ def process_sentence(original_sent, titles):
   sent = sent.split(' ')
   for i, idx in enumerate(link_idx):
     sent[idx] = link_phrases[i]
-  sent = ' '.join(sent).replace(LRB, '(').replace(RRB, ')').replace(LSB, '{').replace(RSB, '')
+  sent = ' '.join(sent).replace(LRB, '(').replace(RRB, ')').replace(LSB, '[').replace(RSB, ']').replace(LCB, '{').replace(RCB, '}')
 
   link_spans = [(title2qid[t], s, e) for t,s,e in link_spans if t in title2qid]
   return sent, link_spans
@@ -314,6 +317,8 @@ def count(pages):
 @timewatch
 def create_dump(args):
   output_dir = args.output_dir
+  if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
   # Create json dumps.
   output_file = 'pages.all.json'
   output_path = os.path.join(output_dir, output_file)
