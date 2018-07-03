@@ -183,7 +183,6 @@ def dump_as_json(entities, file_path, as_jsonlines=True):
     with open(file_path, 'w') as f:
       json.dump(entities, f, indent=4, ensure_ascii=False)
 
-  
 @timewatch
 def main(args):
   # Process Properties.

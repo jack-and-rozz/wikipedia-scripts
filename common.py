@@ -7,6 +7,20 @@ from getpass import getpass
 import multiprocessing as mp
 import argparse, sys, os, time, json, re, itertools, random, itertools
 
+############################################
+##         Color Constants
+############################################
+
+
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+BLACK = "\033[30m"
+UNDERLINE = '\033[4m'
+BOLD = "\033[1m" + UNDERLINE
+RESET = "\033[0m"
+
 
 ############################################
 ##              Utils
@@ -99,3 +113,14 @@ def multi_process(func, *args):
 def flatten(l):
   return list(itertools.chain.from_iterable(l))
 
+def dump_as_json(entities, file_path, as_jsonlines=True):
+  if as_jsonlines:
+    if os.path.exists(file_path):
+      os.system('rm %s' % file_path)
+    with open(file_path, 'a') as f:
+      for entity in entities.values():
+        json.dump(entity, f, ensure_ascii=False)
+        f.write('\n')
+  else:
+    with open(file_path, 'w') as f:
+      json.dump(entities, f, indent=4, ensure_ascii=False)

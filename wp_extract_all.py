@@ -95,9 +95,8 @@ def read_db(target_dir, dbuser, dbpass, dbhost, dbname):
   return title2qid
 
 def color_link(text, link_spans):
-  text = text.split(' ')
+  text = text.split()
   for _, start, end in link_spans:
-    assert end < len(text)
     text[start] = RED + text[start]
     text[end] = text[end] + RESET
   return ' '.join(text)
@@ -106,6 +105,7 @@ def color_link(text, link_spans):
 def process_sentence(original_sent, titles):
   # Fix the prural word splitted by the link (e.g. [[...|church]]es. ).
   sent = original_sent
+  sent = ' '.join([w for w in sent.split() if w])
   for m in set(re.findall(' %s %s (e?s) ' % (RSB, RSB), sent)):
     sent = sent.replace(' %s %s %s' % (RSB, RSB, m),
                         '%s %s %s' % (m, RSB, RSB,),)
@@ -126,15 +126,16 @@ def process_sentence(original_sent, titles):
   sent = re.sub('\\\/', '/', sent)
   sent = re.sub('([;\,\/] ){2,}', ', ', sent)
   sent = re.sub('%s\s*%s ' % (LRB, RRB), '', sent)
-
+  sent = ' '.join([w for w in sent.split() if w])
+  
   # get link spans
-  link_idx = [j for j, w in enumerate(sent.split(' ')) if w == SYMLINK]
+  link_idx = [j for j, w in enumerate(sent.split()) if w == SYMLINK]
   for i, idx in enumerate(link_idx):
     title = titles[i]
-    start = idx + sum([len(p.split(' ')) - 1 for p in link_phrases[:i]])
-    end = start + len(link_phrases[i].split(' ')) - 1
+    start = idx + sum([len(p.split()) - 1 for p in link_phrases[:i]])
+    end = start + len(link_phrases[i].split()) - 1
     link_spans.append((title, start, end))
-  sent = sent.split(' ')
+  sent = sent.split()
   for i, idx in enumerate(link_idx):
     sent[idx] = link_phrases[i]
   sent = ' '.join(sent).replace(LRB, '(').replace(RRB, ')').replace(LSB, '[').replace(RSB, ']').replace(LCB, '{').replace(RCB, '}')
@@ -153,17 +154,21 @@ def process_paragraph(pid, ptitle, para_idx, paragraph, s_parser):
   # stanford's sentence splitter doesn't always work well around the brackers.
   # e,g, "A are one of the [[...|singular]]s. B are ...". (Not to be splitted)
   #m = re.search('\]\](\S+?)\. ', para)
-  for m in re.findall('\]\]([A-Za-z0-9]+?)', para):
+  #for m in re.findall('\]\]([A-Za-z0-9]+?)', para):
+
+  # todo:短くしないほうが良いか？要確認
+  for m in re.findall('\]\]([A-Za-z0-9]+)', para):
     para = para.replace(']]' + m, m + ']] ')
 
-  # Remove phrases enclosed in parentheses with no links.
+  # Remove phrases enclosed in parentheses.
   # (Those are usually expressions in different languages, or acronyms.)
-  link_template = '\[\[[^\[\]]+?(\(.+?\)).*?\|([^\[\]]+?)\]\]'
-  linked_parantheses = [m2[0] for m2 in re.findall(link_template, para)]
-  _linked_parantheses = [m2[1] for m2 in re.findall(link_template, para)]
+
+  #link_template = '\[\[[^\[\]]+?(\(.+?\)).*?\|([^\[\]]+?)\]\]'
+  #linked_parantheses = [m2[0] for m2 in re.findall(link_template, para)]
+  #_linked_parantheses = [m2[1] for m2 in re.findall(link_template, para)]
   for m in re.findall('\([\S\s]*?\)', para):
-    if m not in linked_parantheses:
-       para = para.replace(m , '')
+    # if m not in linked_parantheses:
+    para = para.replace(m , '')
 
   # Get precise titles from link template before parsing.
   # (if after, e.g., 'CP/M-86' can be splited into 'CP/M -86' in tokenizing and become a wrong title.)
@@ -396,4 +401,4 @@ if __name__ == "__main__":
   main(args)
 
 # sapporo
-# nohup python wp.extract_all.py -o wikipedia/latest/extracted/dumps.p1s0 -mw 0 -npr 16 -npg 1 -nst 0 > logs/dumps.p1s0.log 2> logs/dumps.p1s0.err&
+# nohup python wp_extract_all.py -o wikipedia/latest/extracted/dumps.p1s0 -mw 0 -npr 16 -npg 1 -nst 0 > logs/dumps.p1s0.log 2> logs/dumps.p1s0.err&
