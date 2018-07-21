@@ -14,9 +14,7 @@ aka_url = '<http://www.w3.org/2004/02/skos/core#altLabel>'
 # proptype_url = '<http://wikiba.se/ontology-beta#propertyType>' # unused
 
 # the values of name, description, and aka are followed by a lang symbol. (e.g. "green plants"@en)
-value_template = '\"(.+)\"\s*@%s' 
-
-
+value_template = '\"(.+)\"\s*@%s'
 
 def str2bool(v):
   if type(v) == bool:

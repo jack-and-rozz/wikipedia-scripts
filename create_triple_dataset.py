@@ -318,7 +318,7 @@ def main(args):
   sys.stderr.write('\nTesting data.\n')
   statistics(test)
 
-  target_dir = args.target_dir if args.target_dir else args.source_dir
+  target_dir = args.target_dir if args.target_dir else args.source_dir + '/graph'
   if not os.path.exists(target_dir):
     os.makedirs(target_dir)
 
