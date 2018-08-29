@@ -124,3 +124,10 @@ def dump_as_json(entities, file_path, as_jsonlines=True):
   else:
     with open(file_path, 'w') as f:
       json.dump(entities, f, indent=4, ensure_ascii=False)
+
+
+
+from inspect import currentframe
+def dbgprint(*args):
+  names = {id(v):k for k,v in currentframe().f_back.f_locals.items()}
+  print(', '.join(names.get(id(arg),'???')+' = '+repr(arg) for arg in args))
