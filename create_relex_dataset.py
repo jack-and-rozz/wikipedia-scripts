@@ -294,7 +294,7 @@ def main(args):
     for k, v in relation_cnt:
       props[k].freq = v
     data = remove_useless_triples(data, major_relations)
-    sys.stdout.write('After removing minor triples.\n')
+    sys.stdout.write('After removing triples containing minor relations.\n')
     statistics(data)
 
     # Extract only major relations and dump.
