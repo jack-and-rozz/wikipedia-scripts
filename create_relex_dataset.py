@@ -6,20 +6,24 @@ from common import RED, RESET, BLUE, BOLD, UNDERLINE, GREEN
 import argparse, collections, re, os, time, sys, codecs, json, random, copy
 random.seed(0)
 
-@common.timewatch
-def read_jsonlines(source_path, max_rows=0):
-  data = OrderedDict()
-  for i, l in enumerate(open(source_path)):
-    if max_rows and i >= max_rows:
-      break
-    d = common.recDotDict(json.loads(l))
-    data[d.qid] = d
-  return data
 
-def read_json(source_path):
-  data = json.load(open(source_path)) 
-  return common.recDotDict(data)
-
+def read_subprop_tree(subprop_tree_path):
+  # To reduce the number of properties, use hypernymic properties instead if it exists.
+  prop_tree = defaultdict(list)
+  for i, l in enumerate(open(subprop_tree_path)):
+    s, r, o = l.strip().split()
+    if s[0] == 'P' and o[0] == 'P':
+      prop_tree[s].append(o)
+  all_keys = set(prop_tree.keys())
+  for k in all_keys:
+    while True:
+      parents = prop_tree[k]
+      grand_parent = common.flatten([prop_tree[parent] for parent in parents if parent in prop_tree])
+      if grand_parent:
+        prop_tree[k] = grand_parent
+      else:
+        break
+  return prop_tree
 
 def statistics(data):
   link_cnt = defaultdict(int)
@@ -106,17 +110,17 @@ def remove_useless_triples(data, _major_relations):
   return common.recDotDict(new_data)
 
 
-def dump_as_json(entities, file_path, as_jsonlines=True):
-  if as_jsonlines:
-    if os.path.exists(file_path):
-      os.system('rm %s' % file_path)
-    with open(file_path, 'a') as f:
-      for entity in entities.values():
-        json.dump(entity, f, ensure_ascii=False)
-        f.write('\n')
-  else:
-    with open(file_path, 'w') as f:
-      json.dump(entities, f, indent=4, ensure_ascii=False)
+# def dump_as_json(entities, file_path, as_jsonlines=True):
+#   if as_jsonlines:
+#     if os.path.exists(file_path):
+#       os.system('rm %s' % file_path)
+#     with open(file_path, 'a') as f:
+#       for entity in entities.values():
+#         json.dump(entity, f, ensure_ascii=False)
+#         f.write('\n')
+#   else:
+#     with open(file_path, 'w') as f:
+#       json.dump(entities, f, indent=4, ensure_ascii=False)
 
 def divide_data(data, n_train, n_dev, n_test):
   assert n_dev + n_test <= len(data)
@@ -271,40 +275,50 @@ def match_title_with_text(data):
 
   return common.recDotDict(new_data), common.recDotDict(unmatched)
 
+def assign_hypernymic_property(data, subprop_tree):
+  new_data ={}
+  for qid, d in data.items():
+    triples = [[[s, rr, o] for rr in subprop_tree[r]] if r in subprop_tree else [[s,r,o]] for s, r, o in d.triples]
+    triples = common.flatten(triples)
+    d.triples = triples
+    new_data[qid] = d
+  return common.recDotDict(new_data)
+
 @common.timewatch
 def main(args):
-  target_dir = args.target_dir if args.target_dir else args.source_dir + '/knowledge'
+  target_dir = args.target_dir if args.target_dir else args.source_dir + '/relex'
   if not os.path.exists(target_dir):
     os.makedirs(target_dir)
 
   if args.write_log:
     f = open(os.path.join(target_dir, 'create_dataset.log'), 'w')
     sys.stdout = f
-  props = read_jsonlines(os.path.join(args.source_dir, 'properties.tokenized.jsonlines'))
-  data = read_jsonlines(os.path.join(args.source_dir, args.filename), 
-                        max_rows=args.max_rows)
+  subprop_tree = read_subprop_tree(args.subprop_tree_path)
+  props = common.read_jsonlines(os.path.join(args.source_dir, 
+                                             args.property_filename))
+  data = common.read_jsonlines(
+    os.path.join(args.source_dir, args.entity_filename), max_rows=args.max_rows)
+  
   # Use only the first paragraph.
   data = preprocess(data)
 
+  # Replace hyponymic relations to their hypernyms (e.g. 'country' -> 'location') to reduce the number of relation types.
+  data = assign_hypernymic_property(data, subprop_tree)
+  
   sent_cnt, link_cnt, triple_cnt, entity_cnt, relation_cnt = statistics(data)
   sys.stdout.write('All articles.\n')
 
   if args.n_relations:
     major_relations = [k for k, v in relation_cnt[:args.n_relations]]
-    for k, v in relation_cnt:
-      props[k].freq = v
-    data = remove_useless_triples(data, major_relations)
-    sys.stdout.write('After removing triples containing minor relations.\n')
-    statistics(data)
-
-    # Extract only major relations and dump.
     props = OrderedDict([(k, props[k]) for k in major_relations])
-    dump_as_json(props, os.path.join(target_dir, 'properties.jsonlines'))
-    
+
+    data = remove_useless_triples(data, major_relations)
+    sys.stdout.write('After removing triples containing relations with too few frequencies.\n')
+    statistics(data)
 
   data = remove_useless_articles(data, args)
   words_cnt = defaultdict(int)
-  for k,d in data.items():
+  for k, d in data.items():
     for s in d.text:
       words_cnt[len(s.split())] += 1
 
@@ -317,23 +331,36 @@ def main(args):
   sys.stdout.write('\nAfter removing articles whose titles are not matched to the begining of them.\n')
   sys.stdout.write('# of articles (matched, unmatched):\t%d %d\n' % (len(data), len(unmatched)))
 
-  statistics(data)
+  sent_cnt, link_cnt, triple_cnt, entity_cnt, relation_cnt = statistics(data)
+
+  # Reorder the properties by the frequency in the selected articles, and dump them.
+  relation_cnt = sorted(relation_cnt, key=lambda x: -x[1])
+  major_relations = [k for k, v in relation_cnt[:args.n_relations]]
+  props = OrderedDict([(k, props[k]) for k in major_relations])
+  for k, v in relation_cnt:
+    if k in props:
+      props[k].freq = v
+  common.dump_as_json(props, os.path.join(target_dir, 'properties.jsonlines'))
 
   train, dev, test = divide_data(data, args.n_train, args.n_dev, args.n_test)
   sys.stdout.write('\nTraining data.\n')
-  statistics(train)
+  sent_cnt, link_cnt, triple_cnt, entity_cnt, relation_cnt = statistics(train)
+
   sys.stdout.write('\nDevelopment data.\n')
   statistics(dev)
   sys.stdout.write('\nTesting data.\n')
   statistics(test)
 
-  dump_as_json(train, os.path.join(target_dir, 'train.jsonlines'))
-  dump_as_json(dev, os.path.join(target_dir, 'dev.jsonlines'))
-  dump_as_json(test, os.path.join(target_dir, 'test.jsonlines'))
+  common.dump_as_json(train, os.path.join(target_dir, 'train.jsonlines'))
+  common.dump_as_json(dev, os.path.join(target_dir, 'dev.jsonlines'))
+  common.dump_as_json(test, os.path.join(target_dir, 'test.jsonlines'))
 
-  dump_as_json(train, os.path.join(target_dir, 'train.json'), as_jsonlines=False)
-  dump_as_json(dev, os.path.join(target_dir, 'dev.json'), as_jsonlines=False)
-  dump_as_json(test, os.path.join(target_dir, 'test.json'), as_jsonlines=False)
+  common.dump_as_json(train, os.path.join(target_dir, 'train.json'), 
+                      as_jsonlines=False)
+  common.dump_as_json(dev, os.path.join(target_dir, 'dev.json'), 
+                      as_jsonlines=False)
+  common.dump_as_json(test, os.path.join(target_dir, 'test.json'), 
+                      as_jsonlines=False)
 
 if __name__ == "__main__":
   desc = ''
@@ -343,13 +370,18 @@ if __name__ == "__main__":
   parser.add_argument('--n_test', type=int, default=5000)
 
   parser.add_argument('-s', '--source_dir',
-                      default='wikiP2D/wikiP2D.p1s0',
-                      help='')
+                      default='wikiP2D/wikiP2D.p1s0', help='')
   parser.add_argument('-t', '--target_dir', default='')
-  parser.add_argument('-f', '--filename', default='merged.jsonlines')
+  parser.add_argument('-ef', '--entity_filename', default='merged.jsonlines')
+  parser.add_argument('-pf', '--property_filename',
+                      default='properties.tokenized.jsonlines', help='')
+  parser.add_argument('--subprop_tree_path',
+                      default='wd.dumps.all/triples.subprops', help='')
+
+
   parser.add_argument('-mr', '--max_rows', type=int, default=0)
   parser.add_argument('-ml', '--min_n_links', type=int, default=3)
-  parser.add_argument('-nr', '--n_relations', type=int, default=500)
+  parser.add_argument('-nr', '--n_relations', type=int, default=300)
 
   parser.add_argument('--min_n_sentences', type=int, default=0)
   parser.add_argument('--max_n_sentences', type=int, default=5)
