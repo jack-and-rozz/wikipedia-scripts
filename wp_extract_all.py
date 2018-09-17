@@ -27,19 +27,30 @@ LCB = '-LCB-' # {
 RCB = '-RCB-' # }
 
 import corenlp
-corenlp_dir = os.path.join(os.environ['HOME'], 
-                           "workspace/downloads/stanford-corenlp")
-properties_file = os.path.join(corenlp_dir, 'user.properties')
+from stanfordcorenlp import StanfordCoreNLP
+
 
 ############################################
-##            Tokenizer
+##            Tokenizer (legacy)
+############################################
+
+# corenlp_dir = os.environ['CORENLP']
+# properties_file = os.path.join(corenlp_dir, 'user.properties')
+# def stanford_tokenizer(text, s_parser):
+#   result = json.loads(s_parser.parse(text))
+#   sentences = [sent for sent in result['sentences'] if sent['words']]
+#   para = [" ".join([w[0] for w in sent['words']]) for sent in sentences]
+#   return para
+
+############################################
+##            Tokenizer 
 ############################################
 
 def stanford_tokenizer(text, s_parser):
-  result = json.loads(s_parser.parse(text))
-  sentences = [sent for sent in result['sentences'] if sent['words']]
-  para = [" ".join([w[0] for w in sent['words']]) for sent in sentences]
-  return para
+  props={'annotators': 'tokenize,ssplit','pipelineLanguage':'en',}
+  result = json.loads(s_parser.annotate(text, props))
+  sentences = [' '.join([tokens['word'] for tokens in sent['tokens']]) for sent in result['sentences']]
+  return sentences
 
 ############################################
 ##              Main
@@ -282,10 +293,10 @@ def read_articles(source_path, s_parser):
         'text': page_text,
         'link': page_links,
       }
-      return res # DEBUG
+      #return res # DEBUG
   return res
 
-def read_all_pages():
+def read_all_pages(corenlp_host, corenlp_port):
   sys.stderr.write('Reading articles ...\n')
   all_pathes = str(subprocess.getoutput('ls -d %s/*/wiki_*' % args.source_dir)).split()
   if args.max_wikifiles:
@@ -296,7 +307,8 @@ def read_all_pages():
   res = OrderedDict({})
   count = 1
   n_finished_files = 0
-  s_parsers = [corenlp.StanfordCoreNLP(corenlp_path=corenlp_dir, properties=properties_file) for _ in range(args.n_process)]
+  #s_parsers = [corenlp.StanfordCoreNLP(corenlp_path=corenlp_dir, properties=properties_file) for _ in range(args.n_process)]
+  s_parsers = [StanfordCoreNLP(corenlp_host, port=corenlp_port) for _ in range(args.n_process)]
   for _, pathes in itertools.groupby(enumerate(all_pathes), lambda x: x[0] // (args.n_process)):
     pathes = [p[1] for p in pathes]
     res_process = multi_process(read_articles, pathes, s_parsers)
@@ -307,6 +319,9 @@ def read_all_pages():
       count += 1
       sys.stderr.write("Finish reading %d/%d files (%d articles) ...\n" % (n_finished_files, len(all_pathes), len(res)))
   sys.stderr.write("Finish reading %d/%d files (%d articles) ...\n" % (n_finished_files, len(all_pathes), len(res)))
+
+  for parser in s_parsers:
+    parser.close()
   return res
 
 def count(pages):
@@ -334,7 +349,7 @@ def main(args):
     title2qid = read_db(args.source_dir, args.dbuser, args.dbpass, 
                         args.dbhost, args.dbname)
     qid2title = {v:k for k, v in title2qid.items()}
-    pages = read_all_pages()
+    pages = read_all_pages(args.corenlp_host, args.corenlp_port)
   else:
     sys.stderr.write('Found dump files. \n') 
     return
@@ -369,6 +384,9 @@ if __name__ == "__main__":
   parser.add_argument('-npg','--n_paragraph', default=1, type=int, help='if None, this script reads all paragraphs in the paragraph.')
   parser.add_argument('-nst','--n_sentence', default=0, type=int, help='if None, this script reads all sentences in the paragraph.')
 
+  parser.add_argument('-ch', '--corenlp_host', default='http://localhost', 
+                      type=str)
+  parser.add_argument('-cp', '--corenlp_port', default=9000, type=int)
 
   parser.add_argument('--debug', default=True, type=str2bool)
   parser.add_argument('--cleanup', default=False, type=str2bool)

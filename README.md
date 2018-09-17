@@ -2,7 +2,7 @@
 ### 0. Preparation
  * Download Wikidata dump file.
  * Download Wikipedia xml and sql files (ages-articles.xml, page.sql, redirect.sql, wbc_entity_usage.sql) and import them to MySQL database.
- * Prepare Stanford Tokenizer and Corenlp.
+ * Download Corenlp to $corenlp_dir and setup java 1.8.
 
 ### 1. Extract all items, properties, triples from Wikidata.
 ```
@@ -19,7 +19,10 @@ python WikiExtractor wikipedia/latest/xml/enwiki-*-pages-articles.xml -o $target
 
 ### 4. Extract linked sentences from Wikipedia xml dump parsed by WikiExtractor.py.
 ```
-python wp.extract_all.py
+cd $corenlp_dir
+java -mx8g -cp "*" edu.stanford.nlp.pipeline.StanfordCoreNLPServer -port 9000 -timeout 15000 
+cd ..
+python wp.extract_all.py db_username dbpass
 ```
 
 ### 5. Merge Wikidata definitions and triples into the json file extracted from Wikipedia.
