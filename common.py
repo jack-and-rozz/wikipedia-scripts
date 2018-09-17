@@ -23,7 +23,7 @@ RESET = "\033[0m"
 
 
 ############################################
-##              Utils
+##              Dict
 ############################################
 
 class dotDict(dict):
@@ -52,19 +52,72 @@ class rec_dotdefaultdict(defaultdict):
   def __init__(self, _=None):
     super(rec_dotdefaultdict, self).__init__(rec_dotdefaultdict)
 
-  # def bfsearch(self):
-  #   for k in self:
-  #     if isinstance(self[k], type(self)):
-  #       yield self[k].bfsearch()
-  #     else:
-  #       yield self[k]
-  #     #print k , type(self[k])
-  #   exit(1)
+
+############################################
+##              List
+############################################
+
+def flatten(l):
+  return list(itertools.chain.from_iterable(l))
+
+
+############################################
+##              Json
+############################################
+
+def read_jsonlines(source_path, max_rows=0):
+  data = []
+  for i, l in enumerate(open(source_path)):
+    if max_rows and i >= max_rows:
+      break
+    d = recDotDict(json.loads(l))
+    data.append(d)
+  return data
+
+def read_json(source_path):
+  data = json.load(open(source_path)) 
+  return recDotDict(data)
+
+def dump_as_json(entities, file_path, as_jsonlines=True):
+  if as_jsonlines:
+    if os.path.exists(file_path):
+      os.system('rm %s' % file_path)
+    with open(file_path, 'a') as f:
+      for entity in entities.values():
+        json.dump(entity, f, ensure_ascii=False)
+        f.write('\n')
+  else:
+    with open(file_path, 'w') as f:
+      json.dump(entities, f, indent=4, ensure_ascii=False)
+
+def json2jsonlines(source_path, data=None):
+  assert source_path[-4:] == 'json'
+  if not data:
+    data = json.load(open(source_path))
+  dump_as_json(data, source_path + 'lines', as_jsonlines=True)
+  
+############################################
+##              String
+############################################
+
+def separate_path_and_filename(file_path):
+    pattern = '^(.+)/(.+)$'
+    m = re.match(pattern, file_path)
+    if m:
+      path, filename = m.group(1), m.group(2) 
+    else:
+      path, filename = None , file_path
+    return path, filename
 
 def str2bool(v):
   if type(v) == bool:
     return v
   return v.lower() in ("yes", "true", "t", "1")
+
+
+############################################
+##              Others
+############################################
 
 def timewatch(func):
   def wrapper(*args, **kwargs):
@@ -110,50 +163,9 @@ def multi_process(func, *args):
   return [res for i, res in sorted(results, key=lambda x: x[0])]
 
 
-def flatten(l):
-  return list(itertools.chain.from_iterable(l))
-
-def dump_as_json(entities, file_path, as_jsonlines=True):
-  if as_jsonlines:
-    if os.path.exists(file_path):
-      os.system('rm %s' % file_path)
-    with open(file_path, 'a') as f:
-      for entity in entities.values():
-        json.dump(entity, f, ensure_ascii=False)
-        f.write('\n')
-  else:
-    with open(file_path, 'w') as f:
-      json.dump(entities, f, indent=4, ensure_ascii=False)
-
-
-
 from inspect import currentframe
 def dbgprint(*args):
   names = {id(v):k for k,v in currentframe().f_back.f_locals.items()}
   print(', '.join(names.get(id(arg),'???')+' = '+repr(arg) for arg in args))
 
 
-def read_jsonlines(source_path, max_rows=0):
-  data = OrderedDict()
-  for i, l in enumerate(open(source_path)):
-    if max_rows and i >= max_rows:
-      break
-    d = recDotDict(json.loads(l))
-    data[d.qid] = d
-  return data
-
-def read_json(source_path):
-  data = json.load(open(source_path)) 
-  return recDotDict(data)
-
-def dump_as_json(entities, file_path, as_jsonlines=True):
-  if as_jsonlines:
-    if os.path.exists(file_path):
-      os.system('rm %s' % file_path)
-    with open(file_path, 'a') as f:
-      for entity in entities.values():
-        json.dump(entity, f, ensure_ascii=False)
-        f.write('\n')
-  else:
-    with open(file_path, 'w') as f:
-      json.dump(entities, f, indent=4, ensure_ascii=False)

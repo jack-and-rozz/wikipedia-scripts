@@ -103,7 +103,6 @@ def extract_links(data):
 def merge_context(data, contexts, n_max_context):
   new_data = common.recDotDict()
   for qid in data:
-
     if contexts[qid]:
       # Using instance_of relation as category results in a skewed distribution...
       # categories = []
@@ -249,6 +248,7 @@ def main(args):
     os.makedirs(target_dir)
   data = read_jsonlines(os.path.join(args.source_dir, args.filename), 
                         max_rows=args.max_rows)
+
   contexts_by_qid = extract_links(data)
   data = merge_context(data, contexts_by_qid, args.n_max_context)
 
