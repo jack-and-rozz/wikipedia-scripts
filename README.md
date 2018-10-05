@@ -1,8 +1,14 @@
 
 ### 0. Preparation
+ * Install python 3.6.0. 
  * Download Wikidata dump file.
  * Download Wikipedia xml and sql files (ages-articles.xml, page.sql, redirect.sql, wbc_entity_usage.sql) and import them to MySQL database.
  * Download Corenlp to $corenlp_dir and setup java 1.8.
+
+ * run below.
+ '''
+ pip install -r requirements.txt
+ '''
 
 ### 1. Extract all items, properties, triples from Wikidata.
 ```

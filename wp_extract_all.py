@@ -3,8 +3,8 @@ from pprint import pprint
 from collections import OrderedDict, defaultdict
 from getpass import getpass
 import multiprocessing as mp
-import argparse, sys, os, time, json, subprocess, re, itertools, random, itertools, codecs
-from common import str2bool, timewatch, multi_process
+import argparse, sys, os, time, json, subprocess, re, itertools, random, itertools, codecs, regex
+from common import str2bool, timewatch, multi_process, flatten, dump_as_json, setup_parser, stanford_tokenizer
 
 try:
    import pickle as pickle
@@ -25,32 +25,8 @@ LSB = '-LSB-' # [
 RSB = '-RSB-' # ]
 LCB = '-LCB-' # {
 RCB = '-RCB-' # }
+SYMLINK = '@LINK'
 
-import corenlp
-from stanfordcorenlp import StanfordCoreNLP
-
-
-############################################
-##            Tokenizer (legacy)
-############################################
-
-# corenlp_dir = os.environ['CORENLP']
-# properties_file = os.path.join(corenlp_dir, 'user.properties')
-# def stanford_tokenizer(text, s_parser):
-#   result = json.loads(s_parser.parse(text))
-#   sentences = [sent for sent in result['sentences'] if sent['words']]
-#   para = [" ".join([w[0] for w in sent['words']]) for sent in sentences]
-#   return para
-
-############################################
-##            Tokenizer 
-############################################
-
-def stanford_tokenizer(text, s_parser):
-  props={'annotators': 'tokenize,ssplit','pipelineLanguage':'en',}
-  result = json.loads(s_parser.annotate(text, props))
-  sentences = [' '.join([tokens['word'] for tokens in sent['tokens']]) for sent in result['sentences']]
-  return sentences
 
 ############################################
 ##              Main
@@ -136,98 +112,125 @@ def color_link(text, link_spans):
   return ' '.join(text)
 
 
-def process_sentence(original_sent, titles):
-  # Fix the processing for prural words splitted by brackets (e.g. [[...|church]]es).
-  sent = original_sent
-  sent = ' '.join([w for w in sent.split() if w])
-  for m in set(re.findall(' %s %s (e?s) ' % (RSB, RSB), sent)):
-    sent = sent.replace(' %s %s %s' % (RSB, RSB, m),
-                        '%s %s %s' % (m, RSB, RSB,),)
 
-  link_phrases = []
-  link_spans = []
+# def process_sentence(original_sent, titles):
+#   # Fix the processing for prural words splitted by brackets (e.g. [[...|church]]es).
+#   sent = original_sent
+#   sent = ' '.join([w for w in sent.split() if w])
+#   for m in set(re.findall(' %s %s (e?s) ' % (RSB, RSB), sent)):
+#     sent = sent.replace(' %s %s %s' % (RSB, RSB, m),
+#                         '%s %s %s' % (m, RSB, RSB,),)
 
-  # replace link expressions [[wiki_title | raw_phrase]] to @LINK.
-  SYMLINK = '@LINK'
-  link_template = '%s %s (.+?) \| (.+?) %s %s' % (LSB, LSB, RSB, RSB)
+#   link_phrases = []
+#   link_spans = []
 
-  for i, m in enumerate(re.finditer(link_template, sent)):
-    link, _, link_phrase = m.group(0), m.group(1), m.group(2)
-    link_phrases.append(link_phrase)
-    sent = sent.replace(link, SYMLINK)
-  # Remove continuous delimiters, etc.
-  # (caused by removing external links when the xml file was parsed).
-  sent = re.sub('\\\/', '/', sent)
-  sent = re.sub('([;\,\/] ){2,}', ', ', sent)
-  sent = re.sub('%s\s*%s ' % (LRB, RRB), '', sent)
-  sent = ' '.join([w for w in sent.split() if w])
+#   # replace link expressions [[wiki_title | raw_phrase]] to @LINK.
+#   link_template = '%s %s (.+?) \| (.+?) %s %s' % (LSB, LSB, RSB, RSB)
+
+#   for i, m in enumerate(re.finditer(link_template, sent)):
+#     link, _, link_phrase = m.group(0), m.group(1), m.group(2)
+#     link_phrases.append(link_phrase)
+#     sent = sent.replace(link, SYMLINK)
+#   # Remove continuous delimiters, etc.
+#   # (caused by removing external links when the xml file was parsed).
+#   sent = re.sub('\\\/', '/', sent)
+#   sent = re.sub('([;\,\/] ){2,}', ', ', sent)
+#   sent = re.sub('%s\s*%s ' % (LRB, RRB), '', sent)
+#   sent = ' '.join([w for w in sent.split() if w])
   
-  # get link spans
-  link_idx = [j for j, w in enumerate(sent.split()) if w == SYMLINK]
-  for i, idx in enumerate(link_idx):
-    title = titles[i]
-    start = idx + sum([len(p.split()) - 1 for p in link_phrases[:i]])
-    end = start + len(link_phrases[i].split()) - 1
-    link_spans.append((title, start, end))
+#   # get link spans
+#   link_idx = [j for j, w in enumerate(sent.split()) if w == SYMLINK]
+#   for i, idx in enumerate(link_idx):
+#     title = titles[i]
+#     start = idx + sum([len(p.split()) - 1 for p in link_phrases[:i]])
+#     end = start + len(link_phrases[i].split()) - 1
+#     link_spans.append((title, start, end))
+#   sent = sent.split()
+#   for i, idx in enumerate(link_idx):
+#     sent[idx] = link_phrases[i]
+#   sent = ' '.join(sent).replace(LRB, '(').replace(RRB, ')').replace(LSB, '[').replace(RSB, ']').replace(LCB, '{').replace(RCB, '}')
+
+#   link_spans = [(title2qid[t], s, e) for t,s,e in link_spans if t in title2qid]
+#   return sent, link_spans
+
+
+def process_sentence(sent, links_in_para):
+  '''
+  - sent: A string.
+  - links_in_para: a list of tuple of strings, (anchored_text, target_title).
+  '''
   sent = sent.split()
-  for i, idx in enumerate(link_idx):
-    sent[idx] = link_phrases[i]
+  link_idxs = [i for i, w in enumerate(sent) if w == SYMLINK]
+  offset = 0
+  links_in_sent = []
+  for idx, (anchored_text, target_title) in zip(link_idxs, links_in_para):
+    sent[idx] = anchored_text
+    n_words_of_anchored_text = len(anchored_text.split()) - 1 # len(anchored_text.split() - len([SYMLINK]))
+    if target_title in title2qid:
+      links_in_sent.append((title2qid[target_title], idx+offset, idx + offset + n_words_of_anchored_text))
+    offset += n_words_of_anchored_text
+
   sent = ' '.join(sent).replace(LRB, '(').replace(RRB, ')').replace(LSB, '[').replace(RSB, ']').replace(LCB, '{').replace(RCB, '}')
 
-  link_spans = [(title2qid[t], s, e) for t,s,e in link_spans if t in title2qid]
-  return sent, link_spans
+  n_links = len(link_idxs)
+  links_in_para = links_in_para[n_links:] # The found links in the sentence is removed from the link list of the paragraph.
+  return sent, links_in_sent, links_in_para
 
 
 def to_title_format(title_str):
   res = title_str.replace(' ', '_')
   return res[0].upper() + res[1:]
 
+rec_parentheses = regex.compile("(?<rec>\((?:[^\(\)]+|(?&rec))*\))")
+partial_link = re.compile("(\|.+\]\])([A-Za-z0-9]+)")
+link_template = re.compile("(\[\[(.+?)\|(.+?)\]\])")
+
 def process_paragraph(pid, ptitle, para_idx, paragraph, s_parser):
   para = origin = paragraph 
 
-  # Enclose the strings around brackets too, otherwise a piece of characters remain. (e.g. "X is one of the [[...|singular]]s.")
-  # Applying tokenizer can split characters from brackets, so this process must be done before tokenization.
-  for m in re.findall('\]\]([A-Za-z0-9]+)', para):
-    para = para.replace(']]' + m, m + ']] ')
+  # NOTE: there preprocess below must be done before tokenization.
+  # Enclose the strings around brackets too, otherwise a piece of characters remain. (e.g. "... [[...|beverage]]s." -> "... [...|beverages].")
+  para = partial_link.sub(r'\2\1 ', para)
 
   # Remove phrases enclosed in parentheses.
   # (Those are usually expressions in different languages, or acronyms.)
-  for m in re.findall('\([\S\s]*?\)', para):
-    para = para.replace(m , '')
+  para = rec_parentheses.sub('', para)
 
-  # Get precise titles from link template before tokenization.
-  # (if after, e.g., 'CP/M-86' can be splited into 'CP/M -86' in tokenization and become a wrong title.)
-  link_template = '\[\[(.+?)\|(.+?)\]\]'
-
-  ltitles = [to_title_format(m[0]) for m in re.findall(link_template, para)]
+  # Get titles and anchored text, replace them to a special token not to be changed or separated into different sentences by tokenizer.
+  links_in_para = []
+  for m in link_template.findall(para):
+    para = para.replace(m[0], SYMLINK)
+    # Apply tokenizer for anchored texts separately.
+    #links_in_para.append((' '.join(stanford_tokenizer(m[1], s_parser)), 
+    #                      to_title_format(m[2])))
+    links_in_para.append((' '.join(stanford_tokenizer(m[1], s_parser)), 
+                          to_title_format(m[2])))
+  ###################################################################
 
   # Tokenize by stanford parser.
   para = stanford_tokenizer(para, s_parser)
   if args.n_sentence:
     para = para[:args.n_sentence]
-  # sys.stdout = sys.stderr
-  # print(para)
-  # sys.stdout = sys.__stdout__
+
   results = []
   for s in para:
-    n_detected_titles = sum([len(ls) for (_, ls) in results])
-    sent, link_spans = process_sentence(s, ltitles[n_detected_titles:])
-    results.append((sent, link_spans))
+    sent, links_in_sent, links_in_para  = process_sentence(s, links_in_para)
+    results.append((sent, links_in_sent))
 
   # Show an article for debug.
   if args.debug:
     qid = title2qid[ptitle] if ptitle in title2qid else 'None'
     idx = "%s (%s:%d)" % (ptitle, qid, para_idx)
     sys.stdout.write("%s%s Original%s: %s\n" % (BOLD, idx, RESET, origin))
-    for sent_idx, (sent, link_spans) in enumerate(results):
+    for sent_idx, (sent, links_in_sent) in enumerate(results):
       idx = "%s (%s:%d-%d)" % (ptitle, qid, para_idx, sent_idx)
       sys.stdout.write("%s%s Processed%s: %s\n"  % (
-        BOLD, idx, RESET, color_link(sent, link_spans)))
+        BOLD, idx, RESET, color_link(sent, links_in_sent)))
       sys.stdout.write("%s%s Links%s: %s\n" % (
-        BOLD, idx, RESET, link_spans))
+        BOLD, idx, RESET, links_in_sent))
       sys.stdout.write("\n")
 
-  return results  # res[sentence_idx] = (text, link_spans)
+  return results 
 
 def process_page(page, s_parser):
   pid = page['pid']
@@ -293,7 +296,6 @@ def read_articles(source_path, s_parser):
         'text': page_text,
         'link': page_links,
       }
-      #return res # DEBUG
   return res
 
 def read_all_pages(corenlp_host, corenlp_port):
@@ -307,8 +309,8 @@ def read_all_pages(corenlp_host, corenlp_port):
   res = OrderedDict({})
   count = 1
   n_finished_files = 0
-  #s_parsers = [corenlp.StanfordCoreNLP(corenlp_path=corenlp_dir, properties=properties_file) for _ in range(args.n_process)]
-  s_parsers = [StanfordCoreNLP(corenlp_host, port=corenlp_port) for _ in range(args.n_process)]
+  s_parsers = [setup_parser(corenlp_host, corenlp_port) for _ in range(args.n_process)]
+  # TODO: n_process回ずつやるより、初めに一気に分けて最後までjoinせずにやったほうが速い
   for _, pathes in itertools.groupby(enumerate(all_pathes), lambda x: x[0] // (args.n_process)):
     pathes = [p[1] for p in pathes]
     res_process = multi_process(read_articles, pathes, s_parsers)
@@ -355,13 +357,8 @@ def main(args):
     return
 
   # create a json dump.
-  with open(output_path + '.json', 'w') as f:
-    json.dump(pages, f, indent=4, ensure_ascii=False,)
-
-  with open(output_path + '.jsonlines', 'a') as f:
-    for page in pages.values():
-      json.dump(page, f, ensure_ascii=False)
-      f.write('\n')
+  dump_as_json(pages, output_path + '.json', False)
+  dump_as_json(pages, output_path + '.jsonlines', True)
 
 if __name__ == "__main__":
   desc = "This script creates wikiP2D corpus from Wikipedia dump files. These are sql files (page.sql, wbc_entity_usage.sql, redirect.sql), which must be stored in MySQL in advance, and pages-articles.xml parsed by WikiExtractor.py (https://github.com/attardi/wikiextractor.git) with '--filter_disambig_pages --json' options."
@@ -394,5 +391,3 @@ if __name__ == "__main__":
   args = parser.parse_args()
   main(args)
 
-# sapporo
-# nohup python wp_extract_all.py -o wikipedia/latest/extracted/dumps.p1s0 -mw 0 -npr 16 -npg 1 -nst 0 > logs/dumps.p1s0.log 2> logs/dumps.p1s0.err&

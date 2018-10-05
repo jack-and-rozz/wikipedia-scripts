@@ -6,6 +6,8 @@ from getpass import getpass
 
 import multiprocessing as mp
 import argparse, sys, os, time, json, re, itertools, random, itertools
+from stanfordcorenlp import StanfordCoreNLP
+from inspect import currentframe
 
 ############################################
 ##         Color Constants
@@ -65,18 +67,18 @@ def flatten(l):
 ##              Json
 ############################################
 
-def read_jsonlines(source_path, max_rows=0):
+def read_jsonlines(source_path, max_rows=0, _type=recDotDict):
   data = []
   for i, l in enumerate(open(source_path)):
     if max_rows and i >= max_rows:
       break
-    d = recDotDict(json.loads(l))
+    d = _type(json.loads(l)) if _type else json.loads(l)
     data.append(d)
   return data
 
-def read_json(source_path):
+def read_json(source_path, _type=recDotDict):
   data = json.load(open(source_path)) 
-  return recDotDict(data)
+  return _type(data) if _type else data
 
 def dump_as_json(entities, file_path, as_jsonlines=True):
   if as_jsonlines:
@@ -108,6 +110,9 @@ def separate_path_and_filename(file_path):
     else:
       path, filename = None , file_path
     return path, filename
+
+def str2arr(v):
+  return [x for x in v.split(',') if x]
 
 def str2bool(v):
   if type(v) == bool:
@@ -163,9 +168,22 @@ def multi_process(func, *args):
   return [res for i, res in sorted(results, key=lambda x: x[0])]
 
 
-from inspect import currentframe
 def dbgprint(*args):
   names = {id(v):k for k,v in currentframe().f_back.f_locals.items()}
   print(', '.join(names.get(id(arg),'???')+' = '+repr(arg) for arg in args))
 
 
+
+
+############################################
+##            Stanford CoreNLP
+############################################
+
+def setup_parser(host='http://localhost', port='9000'):
+  return StanfordCoreNLP(host, port)
+
+def stanford_tokenizer(text, s_parser, props={'annotators': 'tokenize,ssplit'}):
+  text = text.replace('%', '% ') # to espace it from percent-encoding.
+  result = json.loads(s_parser.annotate(text, props))
+  sentences = [' '.join([tokens['word'] for tokens in sent['tokens'] if tokens['word']]) for sent in result['sentences']]
+  return sentences
