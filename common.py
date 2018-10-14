@@ -1,7 +1,6 @@
 # coding: utf-8
 from pprint import pprint
 from collections import OrderedDict, defaultdict
-from collections import OrderedDict, defaultdict
 from getpass import getpass
 
 import multiprocessing as mp
@@ -123,6 +122,10 @@ def str2bool(v):
 ############################################
 ##              Others
 ############################################
+def dbgprint(*args):
+  names = {id(v):k for k,v in currentframe().f_back.f_locals.items()}
+  print(', '.join(names.get(id(arg),'???')+' = '+repr(arg) for arg in args))
+
 
 def timewatch(func):
   def wrapper(*args, **kwargs):
@@ -164,13 +167,8 @@ def multi_process(func, *args):
   while not q.empty():
     res = q.get()
     results.append(res)
-  
+
   return [res for i, res in sorted(results, key=lambda x: x[0])]
-
-
-def dbgprint(*args):
-  names = {id(v):k for k,v in currentframe().f_back.f_locals.items()}
-  print(', '.join(names.get(id(arg),'???')+' = '+repr(arg) for arg in args))
 
 
 

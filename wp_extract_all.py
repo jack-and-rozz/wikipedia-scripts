@@ -2,6 +2,8 @@
 from pprint import pprint
 from collections import OrderedDict, defaultdict
 from getpass import getpass
+from tqdm import tqdm
+
 import multiprocessing as mp
 import argparse, sys, os, time, json, subprocess, re, itertools, random, itertools, codecs, regex
 from common import str2bool, timewatch, multi_process, flatten, dump_as_json, setup_parser, stanford_tokenizer
@@ -111,49 +113,6 @@ def color_link(text, link_spans):
     text[end] += ' ' + BLUE + '(%s)' % title + RESET
   return ' '.join(text)
 
-
-
-# def process_sentence(original_sent, titles):
-#   # Fix the processing for prural words splitted by brackets (e.g. [[...|church]]es).
-#   sent = original_sent
-#   sent = ' '.join([w for w in sent.split() if w])
-#   for m in set(re.findall(' %s %s (e?s) ' % (RSB, RSB), sent)):
-#     sent = sent.replace(' %s %s %s' % (RSB, RSB, m),
-#                         '%s %s %s' % (m, RSB, RSB,),)
-
-#   link_phrases = []
-#   link_spans = []
-
-#   # replace link expressions [[wiki_title | raw_phrase]] to @LINK.
-#   link_template = '%s %s (.+?) \| (.+?) %s %s' % (LSB, LSB, RSB, RSB)
-
-#   for i, m in enumerate(re.finditer(link_template, sent)):
-#     link, _, link_phrase = m.group(0), m.group(1), m.group(2)
-#     link_phrases.append(link_phrase)
-#     sent = sent.replace(link, SYMLINK)
-#   # Remove continuous delimiters, etc.
-#   # (caused by removing external links when the xml file was parsed).
-#   sent = re.sub('\\\/', '/', sent)
-#   sent = re.sub('([;\,\/] ){2,}', ', ', sent)
-#   sent = re.sub('%s\s*%s ' % (LRB, RRB), '', sent)
-#   sent = ' '.join([w for w in sent.split() if w])
-  
-#   # get link spans
-#   link_idx = [j for j, w in enumerate(sent.split()) if w == SYMLINK]
-#   for i, idx in enumerate(link_idx):
-#     title = titles[i]
-#     start = idx + sum([len(p.split()) - 1 for p in link_phrases[:i]])
-#     end = start + len(link_phrases[i].split()) - 1
-#     link_spans.append((title, start, end))
-#   sent = sent.split()
-#   for i, idx in enumerate(link_idx):
-#     sent[idx] = link_phrases[i]
-#   sent = ' '.join(sent).replace(LRB, '(').replace(RRB, ')').replace(LSB, '[').replace(RSB, ']').replace(LCB, '{').replace(RCB, '}')
-
-#   link_spans = [(title2qid[t], s, e) for t,s,e in link_spans if t in title2qid]
-#   return sent, link_spans
-
-
 def process_sentence(sent, links_in_para):
   '''
   - sent: A string.
@@ -163,7 +122,7 @@ def process_sentence(sent, links_in_para):
   link_idxs = [i for i, w in enumerate(sent) if w == SYMLINK]
   offset = 0
   links_in_sent = []
-  for idx, (anchored_text, target_title) in zip(link_idxs, links_in_para):
+  for idx, (target_title, anchored_text) in zip(link_idxs, links_in_para):
     sent[idx] = anchored_text
     n_words_of_anchored_text = len(anchored_text.split()) - 1 # len(anchored_text.split() - len([SYMLINK]))
     if target_title in title2qid:
@@ -181,30 +140,61 @@ def to_title_format(title_str):
   res = title_str.replace(' ', '_')
   return res[0].upper() + res[1:]
 
-rec_parentheses = regex.compile("(?<rec>\((?:[^\(\)]+|(?&rec))*\))")
-partial_link = re.compile("(\|.+\]\])([A-Za-z0-9]+)")
-link_template = re.compile("(\[\[(.+?)\|(.+?)\]\])")
+
+#rec_parentheses = regex.compile("(?<rec>\((?:[^\(\)]+|(?&rec))*\))")
+#rec_parentheses = re.compile("(\([^\(\)]+\))")
+#partial_link = re.compile("(\|.+?)(\s*?\]\])([A-Za-z0-9]+)")
+rec_parentheses = regex.compile('\(([^()]|(?R))*\)')
+partial_link_right = re.compile("(\|.+?)(\s*?\]\])([^\.\,\-\s\(\)\{\}\[\]]+)")
+partial_link_left = re.compile("(\S+?)(\[\[)")
+link_template = re.compile("(\[\[(.+?)\|([^\[\]]+?)\]\])")
+link_with_extra_bracket = re.compile("\|(.*?)\[\[(.+?)\]\]\]\]")
+link_with_no_surface = re.compile("\[\[[^\[]+?\|\]\]")
+
+
+exists_something_or_not = "[^\[]*?"
+exists_something = "[^\[]+?"
+link_in_title = re.compile("\|(%s)\[\[(%s)\|(%s)\]\](%s)\]\]" % (exists_something_or_not, exists_something, exists_something, exists_something_or_not))
 
 def process_paragraph(pid, ptitle, para_idx, paragraph, s_parser):
   para = origin = paragraph 
 
-  # NOTE: there preprocess below must be done before tokenization.
-  # Enclose the strings around brackets too, otherwise a piece of characters remain. (e.g. "... [[...|beverage]]s." -> "... [...|beverages].")
-  para = partial_link.sub(r'\2\1 ', para)
+  # NOTE: there preprocess below must be done in this order and before tokenization.
+  ####################################################################
+  # Remove wrong, extra brackets. (e.g. '[[Atlas (disambiguation)|[[atlas]]]]' -> '[[Atlas (disambiguation)|atlas]]')
+  para = link_with_extra_bracket.sub(r'|\1 \2]]', para)
 
-  # Remove phrases enclosed in parentheses.
-  # (Those are usually expressions in different languages, or acronyms.)
-  para = rec_parentheses.sub('', para)
+  para = link_with_no_surface.sub('', para)
+  para = link_in_title.sub(r'|\1 \3 \4]]', para)
+
+  # Enclose the unlinked strings at the right of brackets too, otherwise a piece of characters remain. (e.g. "[[...|beverage]]s" -> "[[...|beverages]]")
+  para = partial_link_right.sub(r'\1\3\2 ', para)
+
+  # Separate the strings at the left of brackets. (e.g. 'anti-[[war|war]]' -> 'anti- [war|war]')
+  para = partial_link_left.sub(r'\1 \2 ', para) 
+
+  # Remove phrases enclosed in parentheses since those are usually expressions in different languages, or acronyms. Note that the enclosed phrase, which is a part of an article's title should not be removed for precise matching. (e.g. [[before Christ (BC)|BC]])
+
+  #para = rec_parentheses.sub('', para)
+  offset = 0
+  for m in rec_parentheses.finditer(para):
+    link_end_idx = m.span()[1] - offset
+    if link_end_idx == len(para) or para[link_end_idx] != '|':
+      para = para.replace(m.group(0), '', 1)
+      offset += m.span()[1] - m.span()[0]
+
+
 
   # Get titles and anchored text, replace them to a special token not to be changed or separated into different sentences by tokenizer.
   links_in_para = []
   for m in link_template.findall(para):
     para = para.replace(m[0], SYMLINK)
     # Apply tokenizer for anchored texts separately.
-    #links_in_para.append((' '.join(stanford_tokenizer(m[1], s_parser)), 
-    #                      to_title_format(m[2])))
-    links_in_para.append((' '.join(stanford_tokenizer(m[1], s_parser)), 
-                          to_title_format(m[2])))
+    links_in_para.append(
+      (to_title_format(m[1]), ' '.join(stanford_tokenizer(m[2], s_parser)))
+    )
+
+
   ###################################################################
 
   # Tokenize by stanford parser.
@@ -253,7 +243,7 @@ def process_page(page, s_parser):
   return res   # res[paragraph_id][sentence_idx] = (text, link_spans)
 
 
-def read_articles(source_path, s_parser):
+def read_file(source_path, s_parser):
   if args.debug:
     sys.stdout.write(source_path + '\n')
   res = OrderedDict()
@@ -298,6 +288,22 @@ def read_articles(source_path, s_parser):
       }
   return res
 
+def read_articles(pathes, s_parser):
+  res = OrderedDict()
+  if not args.debug:
+    pbar = tqdm(range(len(pathes)))
+    for path in pathes:
+      res.update(read_file(path, s_parser))
+      pbar.update(1)
+    pbar.close()
+  else:
+    for path in pathes:
+      res.update(read_file(path, s_parser))
+
+
+
+  return res
+
 def read_all_pages(corenlp_host, corenlp_port):
   sys.stderr.write('Reading articles ...\n')
   all_pathes = str(subprocess.getoutput('ls -d %s/*/wiki_*' % args.source_dir)).split()
@@ -310,18 +316,13 @@ def read_all_pages(corenlp_host, corenlp_port):
   count = 1
   n_finished_files = 0
   s_parsers = [setup_parser(corenlp_host, corenlp_port) for _ in range(args.n_process)]
-  # TODO: n_process回ずつやるより、初めに一気に分けて最後までjoinせずにやったほうが速い
-  for _, pathes in itertools.groupby(enumerate(all_pathes), lambda x: x[0] // (args.n_process)):
-    pathes = [p[1] for p in pathes]
-    res_process = multi_process(read_articles, pathes, s_parsers)
-    n_finished_files += len(pathes)
-    for r in res_process:
-      res.update(r)
-    if len(res) > count * 500000:
-      count += 1
-      sys.stderr.write("Finish reading %d/%d files (%d articles) ...\n" % (n_finished_files, len(all_pathes), len(res)))
-  sys.stderr.write("Finish reading %d/%d files (%d articles) ...\n" % (n_finished_files, len(all_pathes), len(res)))
 
+  n_per_process = len(all_pathes) // args.n_process + 1
+  pathes = [all_pathes[i:i+n_per_process] for i in range(0, len(all_pathes), n_per_process)]
+  res_process = multi_process(read_articles, pathes, s_parsers)
+
+  for r in res_process:
+    res.update(r)
   for parser in s_parsers:
     parser.close()
   return res
@@ -345,7 +346,7 @@ def main(args):
   if not os.path.exists(output_dir):
     os.makedirs(output_dir)
   # Create json dumps.
-  if not os.path.exists(output_path) or not args.cleanup:
+  if not os.path.exists(output_path):
     global title2qid
     global qid2title
     title2qid = read_db(args.source_dir, args.dbuser, args.dbpass, 
@@ -361,8 +362,10 @@ def main(args):
   dump_as_json(pages, output_path + '.jsonlines', True)
 
 if __name__ == "__main__":
-  desc = "This script creates wikiP2D corpus from Wikipedia dump files. These are sql files (page.sql, wbc_entity_usage.sql, redirect.sql), which must be stored in MySQL in advance, and pages-articles.xml parsed by WikiExtractor.py (https://github.com/attardi/wikiextractor.git) with '--filter_disambig_pages --json' options."
+  desc = "This script creates wikiP2D corpus from Wikipedia dump files. They contain sql files (page.sql, wbc_entity_usage.sql, redirect.sql), which must be stored to MySQL in advance, and pages-articles.xml parsed by WikiExtractor.py (https://github.com/attardi/wikiextractor.git) with '--filter_disambig_pages --json' options."
   parser = argparse.ArgumentParser(description=desc)
+
+  # MySQL
   parser.add_argument('dbuser',
                       help='the username of your MySQL account')
   parser.add_argument('dbpass',
@@ -373,20 +376,25 @@ if __name__ == "__main__":
   parser.add_argument('--dbname', default='wikipedia',
                       help='the name of database where you stored the dump sqls.')
 
-  parser.add_argument('-o', '--output_dir', default='wikipedia/latest/extracted/dump')
+  # Input and Output dirs
   parser.add_argument('-s', '--source_dir', default='wikipedia/latest/extracted', 
                       help='the root directory whose subdirectories (AA, AB, ...) contain wiki_** files parsed by WikiExtractor.py from enwiki-***-pages-articles.xml')
+  parser.add_argument('-o', '--output_dir', default='wikipedia/latest/extracted/dump')
+
+  # The maximum number of files, paragraphs, and sentences
   parser.add_argument('-mw', '--max_wikifiles', default=0, type=int)
-  parser.add_argument('-npr','--n_process', default=1, type=int)
-  parser.add_argument('-npg','--n_paragraph', default=1, type=int, help='if None, this script reads all paragraphs in the paragraph.')
+  parser.add_argument('-npg','--n_paragraph', default=0, type=int, help='if None, this script reads all paragraphs in the paragraph.')
   parser.add_argument('-nst','--n_sentence', default=0, type=int, help='if None, this script reads all sentences in the paragraph.')
 
-  parser.add_argument('-ch', '--corenlp_host', default='http://localhost', 
-                      type=str)
+  # MultiProcessing
+  parser.add_argument('-npr','--n_process', default=16, type=int)
+
+  # CoreNLP
+  parser.add_argument('-ch', '--corenlp_host', default='http://localhost', type=str)
   parser.add_argument('-cp', '--corenlp_port', default=9000, type=int)
 
   parser.add_argument('--debug', default=True, type=str2bool)
-  parser.add_argument('--cleanup', default=False, type=str2bool)
+  #parser.add_argument('--cleanup', default=False, type=str2bool)
 
   args = parser.parse_args()
   main(args)

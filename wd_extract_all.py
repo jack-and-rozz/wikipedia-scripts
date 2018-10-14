@@ -1,9 +1,10 @@
 #coding: utf-8
 from pprint import pprint
-import argparse, collections, re, os, time, sys, codecs, regex
+import argparse, collections, re, os, time, sys, codecs, regex, json
 from common import str2arr, str2bool, timewatch, multi_process, flatten, dump_as_json, recDotDict, dbgprint
-from common import setup_parser, stanford_tokenizer, read_json
+from common import setup_parser, stanford_tokenizer, read_json, read_jsonlines
 from tqdm import tqdm
+
 try:
    import pickle as pickle
 except:
@@ -26,7 +27,7 @@ RCB = '-RCB-' # }
 
 n_line = 3165697222 # latest-truthy (at 2017-08-02)
 
-def create_entity_template():
+def create_entity_template(qid):
   return {
     'name': '',
     'desc': '',
@@ -35,6 +36,7 @@ def create_entity_template():
     'freq': {
       'triple': 0
     },
+    'qid': qid
   }
 
 node_pattern = re.compile('[PQ][0-9]+')
@@ -66,7 +68,7 @@ def read_wikidatadump(args):
     if triple:
       for x in triple:
         if not x in entities:
-          entities[x] = create_entity_template()
+          entities[x] = create_entity_template(x)
         #entities[x]['triples'].append(triple)
       triples.append(triple)
 
@@ -91,7 +93,7 @@ def read_wikidatadump(args):
         continue
       subj = subj_url.split('/')[-1][:-1] # "<.+/Q[0-9+]>" -> "Q[0-9+]"
       if not subj in entities:
-        entities[subj] = create_entity_template()
+        entities[subj] = create_entity_template(subj)
       if v_type == 'aka':
         entities[subj][v_type].append(v)
       else:
@@ -127,27 +129,22 @@ def remove_incomplete_entities_and_sort_by_freq(entities, required_value_types=[
     props[k] = e_complete[k]
   return items, props
 
+# NOTE: recursive regex expression sometimes never finish tracing (e.g. a phrase containing an expression in a one-sided parenthesis)
+#rec_parentheses = regex.compile("(?<rec>\((?:[^\(\)]+|(?&rec))*\))")
+#rec_brackets = regex.compile("(?<rec>\[(?:[^\[\]]+|(?&rec))*\])")
+#rec_braces = regex.compile("(?<rec>\{(?:[^\{\}]+|(?&rec))*\})")
+# NOTE2: regex.compile('\(([^()]|(?R))*\)') may be better?
 
-rec_parentheses = regex.compile("(?<rec>\((?:[^\(\)]+|(?&rec))*\))")
-rec_brackets = regex.compile("(?<rec>\[(?:[^\[\]]+|(?&rec))*\])")
-rec_braces = regex.compile("(?<rec>\{(?:[^\{\}]+|(?&rec))*\})")
+parentheses = re.compile('\(.+\)')
+brackets =  re.compile('\[.+\]')
+braces =  re.compile('\{.+\}')
+colons = re.compile('[:;].+')
 def preprocess(sent):
-  sent = rec_parentheses.sub('', sent)
-  sent = rec_brackets.sub('', sent)
-  sent = rec_braces.sub('', sent)
+  sent = parentheses.sub('', sent)
+  sent = brackets.sub('', sent)
+  sent = braces.sub('', sent)
+  sent = colons.sub('', sent)
   return sent
-
-# @timewatch
-# def remove_triples_about_incomplete_entity(items, props):
-#   def _remove_triples(_triples):
-#     return [(s,r,o) for (s,r,o) in _triples 
-#             if s in items and o in items and r in props]
-
-#   for k in items:
-#     items[k]['triples'] = _remove_triples(items[k]['triples'])
-#   for k in props:
-#     props[k]['triples'] = _remove_triples(props[k]['triples'])
-#   return items, props
 
 def dump_triples(triples, triples_path):
   with open(triples_path, 'w') as f:
@@ -156,25 +153,28 @@ def dump_triples(triples, triples_path):
       f.write(line)
   
 
+def to_dict(jsonlist):
+  res = collections.OrderedDict()
+  for d in jsonlist:
+    res[d['qid']] = d
+  return res
+
 @timewatch
 def process_entities(args):
 
-  items_fn = "%s/%s" % (args.target_dir, 'items') 
-  props_fn = "%s/%s" % (args.target_dir, 'properties')
-  entities_fn = "%s/%s" % (args.target_dir, 'entities') 
-  triples_fn = "%s/%s" % (args.target_dir, 'triples') 
+  items_fn = "%s/%s" % (args.output_dir, 'items') 
+  props_fn = "%s/%s" % (args.output_dir, 'properties')
+  entities_fn = "%s/%s" % (args.output_dir, 'entities') 
+  triples_fn = "%s/%s" % (args.output_dir, 'triples') 
 
-  if os.path.exists(items_fn + '.json.raw') and os.path.exists(props_fn + '.json.raw'):
+  if os.path.exists(items_fn + '.jsonlines.raw') and os.path.exists(props_fn + '.jsonlines.raw'):
     sys.stderr.write('Found an intermediate file \'%s\'.\n' % (items_fn + '.json.raw'))
-    items = read_json(items_fn + '.json.raw', _type=None)
+    #items = read_jsonlines(items_fn + '.jsonlines.raw', _type=None)
     sys.stderr.write('Found an intermediate file \'%s\'.\n' % (props_fn + '.json.raw'))
-    props = read_json(props_fn + '.json.raw', _type=None)
-    return items, props
+    props = to_dict(read_jsonlines(props_fn + '.jsonlines.raw', _type=None))
+    #return items, props
+    return props
 
-  # if os.path.exists(entities_fn + 'jsonlines.raw'):
-  #   sys.stderr.write('Found an intermediate file \'%s\'.\n' % (entities_fn + '.json.raw'))
-  #   entities = read_json(entities_fn + '.jsonlines.raw')
-  # else:
   entities, triples = read_wikidatadump(args)
   dump_triples(triples, triples_fn + '.txt')
   del triples
@@ -188,9 +188,11 @@ def process_entities(args):
   #items, props = remove_triples_about_incomplete_entity(items, props)
   dump_as_json(items, items_fn + '.jsonlines.raw', True)
   dump_as_json(props, props_fn + '.jsonlines.raw', True)
-  dump_as_json(items, items_fn + '.json.raw', False)
-  dump_as_json(props, props_fn + '.json.raw', False)
-  return items, props
+  #dump_as_json(items, items_fn + '.json.raw', False)
+  #dump_as_json(props, props_fn + '.json.raw', False)
+  #return items, props
+  del items
+  return props
 
 @timewatch
 def tokenize(data, host, port):
@@ -216,51 +218,77 @@ def tokenize_items(items, host, port, n_process):
   divided_items = [dict(items[i:i+n_per_process]) for i in range(0, len(items), n_per_process)]
 
   items = {}
+  #dbgprint(len(divided_items))
   for r in multi_process(tokenize, divided_items, 
                          [host for _ in range(n_process)], 
                          [port for _ in range(n_process)]):
     items.update(r)
   return items
 
+
+def tokenize_and_write(items, f, args):
+  items = tokenize_items(items, args.corenlp_host, args.corenlp_port, 
+                         args.n_process)
+  for d in items.values():
+    json.dump(d, f, ensure_ascii=False)
+    f.write('\n')
+
+@timewatch
 def main(args):
-  if not os.path.exists(args.target_dir):
-    os.makedirs(args.target_dir)
-  items_fn = "%s/%s" % (args.target_dir, 'items') 
-  props_fn = "%s/%s" % (args.target_dir, 'properties')
+  if not os.path.exists(args.output_dir):
+    os.makedirs(args.output_dir)
+  items_fn = "%s/%s" % (args.output_dir, 'items') 
+  props_fn = "%s/%s" % (args.output_dir, 'properties')
   if (os.path.exists(items_fn + '.jsonlines') or os.path.exists(props_fn + '.jsonlines')) and not args.cleanup:
     sys.stderr.write('Output json files already exist. (%s, %s)\n' % (items_fn + '.jsonlines', props_fn + '.jsonlines'))
     return
-  items, props = process_entities(args)
+  props = process_entities(args)
 
-  # Parse properties' descriptions. 
+  # Parse property descriptions. 
   if not os.path.exists(props_fn + '.jsonlines'):
     props = tokenize(props, args.corenlp_host, args.corenlp_port)
     dump_as_json(props, props_fn + '.jsonlines', True)
-    dump_as_json(props, props_fn + '.json', False)
 
-  # Parse items' descriptions. 
+  # Parse item descriptions. Since keeping all the entities consumes a large amount of memory, thus this script reloads item.jsonlines.raw by chunk and process it.
   if not os.path.exists(items_fn + '.jsonlines'):
-    items = tokenize_items(items, args.corenlp_host, args.corenlp_port, 
-                           args.n_process)
-    dump_as_json(items, items_fn + '.jsonlines', True)
-    dump_as_json(items, items_fn + '.json', False)
+    with open(items_fn + '.jsonlines.raw') as fs:
+      with open(items_fn + '.jsonlines', 'a') as ft:
+        items = collections.OrderedDict()
+        for i, l in enumerate(fs):
+          d = json.loads(l)
+          items[d['qid']] = d
+          if len(items) >= args.chunk_size:
+            tokenize_and_write(items, ft, args)
+            items = collections.OrderedDict()
+        tokenize_and_write(items, ft, args)
 
+      #dump_as_json(items, items_fn + '.jsonlines', True)
+      #dump_as_json(items, items_fn + '.json', False)
+  sys.stderr.write('Processed files : items.jsonlines, properties.jsonlines, triples.txt\n')
 
 if __name__ == "__main__":
   desc = 'This script is for preprocessing latest-truthy.nt file downloaded from \'https://dumps.wikimedia.org/wikidatawiki/entities/\'.'
   parser = argparse.ArgumentParser(description=desc)
+
+  # Input and Output dirs
   parser.add_argument('-s', '--source_path', 
                       default='wikidata/latest/latest-truthy.nt')
-  parser.add_argument('-t', '--target_dir', 
+  parser.add_argument('-o', '--output_dir', 
                       default='wikidata/latest/extracted')
   parser.add_argument('-l', '--lang', default='en')
   parser.add_argument('-mr', '--max_rows', default=None, type=int)
-  parser.add_argument('--cleanup', default=False, type=str2bool)
   parser.add_argument('--required_value_types', default='name', type=str2arr,
                       help='a list-string of required value types which an entity must have (delimited by ",").')
+
+  # MultiProcessing
+  parser.add_argument('-npr','--n_process', default=10, type=int)
+  parser.add_argument('-cs', '--chunk_size', default=1000000, type=int)
+
+  # CoreNLP
   parser.add_argument('-ch', '--corenlp_host', default='http://localhost',
                       type=str)
   parser.add_argument('-cp', '--corenlp_port', default=9000, type=int)
-  parser.add_argument('-npr','--n_process', default=8, type=int)
+
+  parser.add_argument('--cleanup', default=False, type=str2bool)
   args = parser.parse_args()
   main(args)
