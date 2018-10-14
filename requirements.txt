@@ -1,4 +1,4 @@
-#mysqlclient
+mysqlclient
 stanfordcorenlp
 regex
 corenlp-python==3.4.1.post1

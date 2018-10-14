@@ -50,8 +50,8 @@ def merge_data(pages, items, triples):
 
 def main(args):
     sys.stdout.write("Reading data...\n")
-    pages = read_json_lines(args.wp_source_dir + '/pages.all.jsonlines')
-    items = read_json_lines(args.wd_source_dir + '/items.tokenized.jsonlines')
+    pages = read_json_lines(args.wp_source_dir + '/articles.jsonlines')
+    items = read_json_lines(args.wd_source_dir + '/items.jsonlines')
     triples = read_triples(args.wd_source_dir + '/triples.txt')
     sys.stdout.write("Number of Pages, Items, Triples = %d, %d, %d\n" % (len(pages), len(items), len(triples)))
 
@@ -64,8 +64,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Script that merges pages.all.jsonlines, items.tokenized.jsonlines, and triples.txt together into merged.{json|jsonlines}.')
-    parser.add_argument('--wp_source_dir', default='wp.dumps.p1s0', help='directory that includes outputs of wp_extract_all.py')
-    parser.add_argument('--wd_source_dir', default='wd.dumps.all', help='directory that includes  outputs of wd_extract_all.py')
+    parser.add_argument('--wp_source_dir', 
+                        default='wikipedia/latest/extracted/dump', 
+                        help='The directory including outputs wp parsed data.')
+    parser.add_argument('--wd_source_dir', 
+                        default='wikidata/latest/extracted', 
+                        help='The directory including outputs wd parsed data.')
     parser.add_argument('target_dir', help='path of output files')
     args = parser.parse_args()
     main(args)
