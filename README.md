@@ -5,14 +5,11 @@ This script is to make a description generation dataset from Wikipedia articles,
 ## How to run
 ### 0. Preparations
  * Requirements (Other versions can be applicable, but not confirmed):
-  - Python 3.6.0 
-  - JDK 1.8
-  - MySQL 5.7
+   - Python 3.6.0 
+   - JDK 1.8
+   - MySQL 5.7
 
- * Install python libraries.
-   ```
-    pip install -r requirements.txt
-   ```
+ * Install python requirements: ```pip install -r requirements.txt```
 
  * Download Wikidata dump.
    ```
