@@ -38,7 +38,7 @@ This script is to make a description generation dataset from Wikipedia articles,
    gzip -d enwiki-latest-redirect.sql.gz
    gzip -d enwiki-latest-wbc_entity_usage.sql.gz
    # ***
-   # Please google how to create a new database on MySQL and import sql files ...
+   # Please google how to create a new database on MySQL and import sql files ;v;
    # ***
    cd ../../
    ```
