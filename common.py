@@ -46,12 +46,12 @@ class recDotDict(dict):
             _dict[k][i] = dotDict(x)
     super(recDotDict, self).__init__(_dict)
 
-class rec_dotdefaultdict(defaultdict):
+class recDotDefaultDict(defaultdict):
   __getattr__ = dict.__getitem__
   __setattr__ = dict.__setitem__
   __delattr__ = dict.__delitem__
   def __init__(self, _=None):
-    super(rec_dotdefaultdict, self).__init__(rec_dotdefaultdict)
+    super(recDotDefaultDict, self).__init__(recDotDefaultDict)
 
 
 ############################################

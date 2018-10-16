@@ -276,7 +276,8 @@ if __name__ == "__main__":
   parser.add_argument('-o', '--output_dir', 
                       default='wikidata/latest/extracted')
   parser.add_argument('-l', '--lang', default='en')
-  parser.add_argument('-mr', '--max_rows', default=None, type=int)
+  parser.add_argument('-mr', '--max_rows', default=None, type=int, 
+                      help='The maximum lines to be read from the original dump. Mainly for debugging.')
   parser.add_argument('--required_value_types', default='name', type=str2arr,
                       help='a list-string of required value types which an entity must have (delimited by ",").')
 
