@@ -75,7 +75,8 @@ python merge_data.py --wp_source_dir=wikipedia/latest/extracted --wd_source_dir=
 ```
 
 
-The final output 'merged.jsonlines' is a list of jsonlines, each line describes an entity.g
+The final output 'merged.jsonlines' is a list of jsonlines, each line describes an entity.
+```
 {
   'qid': Entity ID in Wikidata.
   'pid': Article ID in Wikipedia.
@@ -86,4 +87,4 @@ The final output 'merged.jsonlines' is a list of jsonlines, each line describes 
   'link' : Anchored texts on 'text', a dictionary keyed by qids. Its value is the position of the anchored text, [paragraph_idx, sent_idx, (begin, end)].
   'contexts': Sentences in the article of other entities and the position of the anchored texts to this entity in the sentences.
 }
-
+```
