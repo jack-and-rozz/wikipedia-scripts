@@ -71,7 +71,19 @@ python wp_extract_all.py DB_USERNAME DB_PASSWORD --dbname=DB_NAME -s wikidata/la
 
 ### 5. Merge Wikidata definitions and triples into the json file extracted from Wikipedia.
 ```
-python merge_data.py --wp_source_dir=wikipedia/latest/extracted/dump --wd_source_dir=wikidata/latest/extracted --target_dir=PATH_TO_OUTPUT_DATASET
+python merge_data.py --wp_source_dir=wikipedia/latest/extracted --wd_source_dir=wikidata/latest/extracted --target_dir=PATH_TO_OUTPUT_DATASET
 ```
 
+
+The final output 'merged.jsonlines' is a list of jsonlines, each line describes an entity.g
+{
+  'qid': Entity ID in Wikidata.
+  'pid': Article ID in Wikipedia.
+  'name': Entity name in Wikidata.
+  'title': Article title in Wikipedia.
+  'aka': Rephrasings of the entity in Wikidata.
+  'text' : Article in Wikipedia, a list of paragraph. Each paragraph consists of sentences. The sentences are tokenized by Stanford CoreNLP. 
+  'link' : Anchored texts on 'text', a dictionary keyed by qids. Its value is the position of the anchored text, [paragraph_idx, sent_idx, (begin, end)].
+  'contexts': Sentences in the article of other entities and the position of the anchored texts to this entity in the sentences.
+}
 
