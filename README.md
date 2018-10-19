@@ -1,6 +1,6 @@
 
 ## Overview
-This repository contains the scripts to make a description generation dataset from Wikipedia articles and Wikidata descriptions. Note that running all of these scripts requires time (1~2 days) and consumes a large amount of memories due to the size of the original data.
+This repository contains scripts to make a description generation dataset from Wikipedia articles and Wikidata descriptions. Note that running all of these scripts requires time (1~2 days) and consumes a large amount of memories due to the size of the original data.
 
 ## How to run
 ### 0. Preparations
@@ -83,8 +83,8 @@ The final output 'merged.jsonlines' is a list of jsonlines, each line describes 
   'name': Entity name in Wikidata.
   'title': Article title in Wikipedia.
   'aka': Rephrasings of the entity in Wikidata.
-  'text' : Article in Wikipedia, a list of paragraph. Each paragraph consists of sentences. The sentences are tokenized by Stanford CoreNLP. 
-  'link' : Anchored texts on 'text', a dictionary keyed by qids. Its value is the position of the anchored text, [paragraph_idx, sent_idx, (begin, end)].
+  'text' : Article in Wikipedia, a list of paragraphs. The sentences in a paragraph are tokenized by Stanford CoreNLP, and phrases in parentheses are removed.
+  'link' : Anchored texts on 'text', a dictionary keyed by qids. Its value is the position of the anchored text, [paragraph_idx, sent_idx, (begin, end)]. Besides usual (bluelined) links in articles, the first bolded text is also regarded as an anchored text to itself.
   'contexts': Sentences in the article of other entities and the position of the anchored texts to this entity in the sentences.
 }
 ```
