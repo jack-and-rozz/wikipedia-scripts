@@ -63,7 +63,7 @@ Note that this WikiExtractor.py has several modifications from the original one 
 python WikiExtractor.py wikipedia/latest/enwiki-latest-pages-articles.xml -o wikipedia/latest/extracted --filter_disambig_pages --json
 ```
 
-### 4. Extract linked sentences from Wikipedia xml dump parsed by WikiExtractor.py.
+### 4. Extract linked sentences from the parsed xml files.
 ```
 python wp_extract_all.py DB_USERNAME DB_PASSWORD --dbname=DB_NAME -s wikidata/latest/latest-truthy.nt -o wikidata/latest/extracted
 

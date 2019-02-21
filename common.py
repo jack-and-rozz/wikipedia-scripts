@@ -5,7 +5,6 @@ from getpass import getpass
 
 import multiprocessing as mp
 import argparse, sys, os, time, json, re, itertools, random, itertools
-from stanfordcorenlp import StanfordCoreNLP
 from inspect import currentframe
 
 ############################################
@@ -178,6 +177,7 @@ def multi_process(func, *args):
 ############################################
 
 def setup_parser(host='http://localhost', port='9000'):
+  from stanfordcorenlp import StanfordCoreNLP
   return StanfordCoreNLP(host, port)
 
 def stanford_tokenizer(text, s_parser, props={'annotators': 'tokenize,ssplit'}):
